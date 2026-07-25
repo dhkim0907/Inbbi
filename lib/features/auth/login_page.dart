@@ -1,0 +1,157 @@
+import 'package:flutter/material.dart';
+import '../../core/app_routes.dart';
+import '../../core/theme/app_colors.dart';
+
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
+
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  static const Color _brandColor = Color(0xFF346CB2);
+
+  final TextEditingController _idController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+
+  @override
+  void dispose() {
+    _idController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  InputDecoration _fieldDecoration(String hintText) {
+    final borderRadius = BorderRadius.circular(20);
+    const borderColor = Color(0xFFC7D0E0);
+    return InputDecoration(
+      hintText: hintText,
+      hintStyle: const TextStyle(
+        fontSize: 16,
+        color: AppColors.textSecondary,
+      ),
+      filled: true,
+      fillColor: Colors.white,
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+      border: OutlineInputBorder(
+        borderRadius: borderRadius,
+        borderSide: const BorderSide(color: borderColor),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: borderRadius,
+        borderSide: const BorderSide(color: borderColor),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: borderRadius,
+        borderSide: const BorderSide(color: _brandColor, width: 1.5),
+      ),
+    );
+  }
+
+  void _handleLogin() {
+    Navigator.of(context).pushReplacementNamed(AppRoutes.home);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 64),
+              const Text(
+                '인삐',
+                style: TextStyle(
+                  fontSize: 40,
+                  fontWeight: FontWeight.bold,
+                  color: _brandColor,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'I-Class와 학사 정보를\n한 번에 관리하세요.',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black,
+                  height: 1.3,
+                ),
+              ),
+              const SizedBox(height: 40),
+              const Text(
+                '인하대 포털 ID',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _idController,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(fontSize: 16, color: Colors.black),
+                decoration: _fieldDecoration(''),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                '비밀번호',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _passwordController,
+                obscureText: true,
+                style: const TextStyle(fontSize: 16, color: Colors.black),
+                decoration: _fieldDecoration(''),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: _handleLogin,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _brandColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    '로그인',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ), 
+              ),
+              const SizedBox(height: 12),
+              const Center(
+                child: Text(
+                  '비밀번호는 암호화되어 저장됩니다.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
