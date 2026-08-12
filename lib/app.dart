@@ -4,7 +4,6 @@ import 'core/theme/app_theme.dart';
 import 'core/widgets/main_tab_shell.dart';
 import 'features/splash/splash_page.dart';
 import 'features/auth/login_page.dart';
-import 'features/notification/notification_page.dart';
 
 class InbbiApp extends StatelessWidget {
   const InbbiApp({super.key});
@@ -23,7 +22,8 @@ class InbbiApp extends StatelessWidget {
         AppRoutes.calendar: (context) => const MainTabShell(initialIndex: 1),
         AppRoutes.noticeFeed: (context) => const MainTabShell(initialIndex: 2),
         AppRoutes.course: (context) => const MainTabShell(initialIndex: 3),
-        AppRoutes.notification: (context) => const NotificationPage(),
+        AppRoutes.notification: (context) =>
+            const MainTabShell(initialIndex: 5),
         AppRoutes.settings: (context) => const MainTabShell(initialIndex: 4),
       },
     );

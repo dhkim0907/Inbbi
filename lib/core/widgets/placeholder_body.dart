@@ -9,8 +9,6 @@ class PlaceholderBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Text(title, style: AppTextStyles.heading1),
-    );
+    return Center(child: Text(title, style: AppTextStyles.heading1));
   }
 }

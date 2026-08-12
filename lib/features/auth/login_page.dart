@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/app_routes.dart';
+import '../../core/layout/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 
 class LoginPage extends StatefulWidget {
@@ -11,6 +12,7 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   static const Color _brandColor = Color(0xFF346CB2);
+  static const Color _desktopBackgroundColor = Color(0xFFEEF2FA);
 
   final TextEditingController _idController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -27,10 +29,7 @@ class _LoginPageState extends State<LoginPage> {
     const borderColor = Color(0xFFC7D0E0);
     return InputDecoration(
       hintText: hintText,
-      hintStyle: const TextStyle(
-        fontSize: 16,
-        color: AppColors.textSecondary,
-      ),
+      hintStyle: const TextStyle(fontSize: 16, color: AppColors.textSecondary),
       filled: true,
       fillColor: Colors.white,
       isDense: true,
@@ -56,102 +55,136 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = AppBreakpoints.of(context);
+    final form = _buildForm();
+
+    if (screenSize == ScreenSize.mobile) {
+      return Scaffold(
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 64),
+                form,
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
-      body: SafeArea(
+      backgroundColor: _desktopBackgroundColor,
+      body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 64),
-              const Text(
-                '인삐',
-                style: TextStyle(
-                  fontSize: 40,
-                  fontWeight: FontWeight.bold,
-                  color: _brandColor,
+          padding: const EdgeInsets.symmetric(vertical: 40),
+          child: Container(
+            width: 440,
+            padding: const EdgeInsets.all(48),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 32,
+                  offset: const Offset(0, 12),
                 ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'I-Class와 학사 정보를\n한 번에 관리하세요.',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                  height: 1.3,
-                ),
-              ),
-              const SizedBox(height: 40),
-              const Text(
-                '인하대 포털 ID',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _idController,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(fontSize: 16, color: Colors.black),
-                decoration: _fieldDecoration(''),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                '비밀번호',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _passwordController,
-                obscureText: true,
-                style: const TextStyle(fontSize: 16, color: Colors.black),
-                decoration: _fieldDecoration(''),
-              ),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: _handleLogin,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _brandColor,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: const Text(
-                    '로그인',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ), 
-              ),
-              const SizedBox(height: 12),
-              const Center(
-                child: Text(
-                  '비밀번호는 암호화되어 저장됩니다.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-            ],
+              ],
+            ),
+            child: form,
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          '인삐',
+          style: TextStyle(
+            fontSize: 40,
+            fontWeight: FontWeight.bold,
+            color: _brandColor,
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'I-Class와 학사 정보를\n한 번에 관리하세요.',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: Colors.black,
+            height: 1.3,
+          ),
+        ),
+        const SizedBox(height: 40),
+        const Text(
+          '인하대 포털 ID',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Colors.black,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _idController,
+          keyboardType: TextInputType.number,
+          style: const TextStyle(fontSize: 16, color: Colors.black),
+          decoration: _fieldDecoration(''),
+        ),
+        const SizedBox(height: 24),
+        const Text(
+          '비밀번호',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Colors.black,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _passwordController,
+          obscureText: true,
+          style: const TextStyle(fontSize: 16, color: Colors.black),
+          decoration: _fieldDecoration(''),
+        ),
+        const SizedBox(height: 32),
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: ElevatedButton(
+            onPressed: _handleLogin,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _brandColor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              elevation: 0,
+            ),
+            child: const Text(
+              '로그인',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Center(
+          child: Text(
+            '비밀번호는 암호화되어 저장됩니다.',
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          ),
+        ),
+      ],
     );
   }
 }

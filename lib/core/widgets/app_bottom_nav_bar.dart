@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-class _NavItem {
-  const _NavItem({
+class NavItem {
+  const NavItem({
     required this.label,
     required this.icon,
     required this.selectedIcon,
@@ -25,23 +25,23 @@ class AppBottomNavBar extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
 
-  static const Color _selectedColor = Color(0xFF346CB2);
-  static const Color _unselectedColor = Color(0xFF9CA3AF);
+  static const Color selectedColor = Color(0xFF346CB2);
+  static const Color unselectedColor = Color(0xFF9CA3AF);
 
-  static const List<_NavItem> _items = [
-    _NavItem(label: '홈', icon: Icons.home_outlined, selectedIcon: Icons.home),
-    _NavItem(
+  static const List<NavItem> items = [
+    NavItem(label: '홈', icon: Icons.home_outlined, selectedIcon: Icons.home),
+    NavItem(
       label: '캘린더',
       icon: Icons.calendar_today_outlined,
       selectedIcon: Icons.calendar_today,
     ),
-    _NavItem(label: '공지', icon: Icons.menu, selectedIcon: Icons.menu),
-    _NavItem(
+    NavItem(label: '공지', icon: Icons.menu, selectedIcon: Icons.menu),
+    NavItem(
       label: '강의',
       icon: Icons.article_outlined,
       selectedIcon: Icons.article,
     ),
-    _NavItem(
+    NavItem(
       label: '마이',
       icon: Icons.account_circle_outlined,
       selectedIcon: Icons.account_circle,
@@ -67,10 +67,10 @@ class AppBottomNavBar extends StatelessWidget {
           ],
         ),
         child: Row(
-          children: List.generate(_items.length, (index) {
-            final item = _items[index];
+          children: List.generate(items.length, (index) {
+            final item = items[index];
             final selected = index == currentIndex;
-            final color = selected ? _selectedColor : _unselectedColor;
+            final color = selected ? selectedColor : unselectedColor;
             return Expanded(
               child: InkWell(
                 borderRadius: BorderRadius.circular(24),
