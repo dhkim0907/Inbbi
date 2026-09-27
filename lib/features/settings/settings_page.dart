@@ -1,3 +1,8 @@
+import '../notification/realtime/realtime_scope.dart';
+import '../notification/push/push_scope.dart';
+import '../calendar/calendar_scope.dart';
+import '../calendar/google_sign_in_button.dart' as google_button;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../core/app_routes.dart';
 import '../../core/theme/app_colors.dart';
@@ -31,7 +36,6 @@ class _SettingsPageState extends State<SettingsPage> {
 
   bool _portalLinked = true;
   bool _iClassLinked = true;
-  bool _googleCalendarLinked = false;
   bool _dueDateAlertEnabled = true;
 
   Widget _buildStatusRow({
@@ -39,7 +43,8 @@ class _SettingsPageState extends State<SettingsPage> {
     required bool linked,
     required String onLabel,
     required String offLabel,
-    required VoidCallback onTap,
+    VoidCallback? onTap,
+    Widget? trailing,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -54,25 +59,40 @@ class _SettingsPageState extends State<SettingsPage> {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: _borderColor),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final title = Text(
                 label,
                 style: const TextStyle(
                   fontSize: 15,
                   color: AppColors.textPrimary,
                 ),
-              ),
-              Text(
-                linked ? onLabel : offLabel,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: linked ? _linkedColor : _brandColor,
-                ),
-              ),
-            ],
+              );
+              final action =
+                  trailing ??
+                  Text(
+                    linked ? onLabel : offLabel,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: linked ? _linkedColor : _brandColor,
+                    ),
+                  );
+              if (trailing != null && constraints.maxWidth < 440) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [title, const SizedBox(height: 12), action],
+                );
+              }
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Flexible(child: title),
+                  const SizedBox(width: 8),
+                  action,
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -111,7 +131,46 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  void _handleAutoLoginReset() {
+  Future<void> _handleGoogleCalendarTap() async {
+    final calendar = CalendarScope.of(context);
+    if (calendar.googleAccount != null) {
+      if (calendar.googleAuthorizationRequired) {
+        await calendar.authorizeGoogle();
+        return;
+      }
+      await calendar.disconnectGoogle();
+      return;
+    }
+    if (!calendar.googleAuth.configured) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Google OAuth 클라이언트 설정이 필요해요.')),
+      );
+      return;
+    }
+    await calendar.connectGoogle();
+  }
+
+  Future<void> _handleAutoLoginReset() async {
+    final calendar = CalendarScope.of(context);
+    calendar.setAppToken(null);
+    await calendar.disconnectGoogle();
+    if (!mounted) return;
+    final realtime = RealtimeScope.maybeOf(context);
+    await realtime?.stop();
+    if (!mounted) return;
+    final push = PushScope.maybeOf(context);
+    if (push != null && push.enabled) {
+      if (push.busy) return;
+      await push.setEnabled(false);
+      if (!mounted) return;
+      if (push.error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('알림 연결을 해제하지 못했어요. 다시 시도해 주세요.')),
+        );
+        return;
+      }
+    }
+    if (!mounted) return;
     Navigator.of(
       context,
     ).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
@@ -143,7 +202,10 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
           const SizedBox(height: 4),
-          const Text(_subtitle, style: TextStyle(fontSize: 14, color: _metaColor)),
+          const Text(
+            _subtitle,
+            style: TextStyle(fontSize: 14, color: _metaColor),
+          ),
           const SizedBox(height: 20),
           ..._buildSettingsContent(),
         ],
@@ -174,7 +236,10 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ),
                     SizedBox(height: 6),
-                    Text(_subtitle, style: TextStyle(fontSize: 14, color: _metaColor)),
+                    Text(
+                      _subtitle,
+                      style: TextStyle(fontSize: 14, color: _metaColor),
+                    ),
                   ],
                 ),
                 Row(
@@ -284,13 +349,39 @@ class _SettingsPageState extends State<SettingsPage> {
         offLabel: '연동 안 됨',
         onTap: () => setState(() => _iClassLinked = !_iClassLinked),
       ),
-      _buildStatusRow(
-        label: 'Google Calendar 연동',
-        linked: _googleCalendarLinked,
-        onLabel: '연동됨',
-        offLabel: '연동하기',
-        onTap: () =>
-            setState(() => _googleCalendarLinked = !_googleCalendarLinked),
+      Builder(
+        builder: (context) {
+          final calendar = CalendarScope.of(context);
+          return _buildStatusRow(
+            label: 'Google Calendar 연동',
+            linked: calendar.googleAccount != null,
+            onLabel: calendar.googleAuthorizationRequired ? '권한 허용' : '연동됨',
+            offLabel: 'Google 로그인',
+            onTap:
+                calendar.googleAccount != null &&
+                    !calendar.googleAuthorizationRequired
+                ? _handleGoogleCalendarTap
+                : null,
+            trailing: calendar.googleAccount == null
+                ? kIsWeb &&
+                          calendar.googleAuth.configured &&
+                          calendar.googleReady
+                      ? Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: google_button.buildGoogleSignInButton(),
+                        )
+                      : TextButton(
+                          onPressed: _handleGoogleCalendarTap,
+                          child: const Text('Google 로그인'),
+                        )
+                : calendar.googleAuthorizationRequired
+                ? TextButton(
+                    onPressed: calendar.authorizeGoogle,
+                    child: const Text('일정 권한 허용'),
+                  )
+                : null,
+          );
+        },
       ),
       _buildStatusRow(
         label: '과제 마감 알림 24시간 전',

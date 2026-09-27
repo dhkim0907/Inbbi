@@ -1,3 +1,8 @@
+import 'dart:async';
+import '../../features/notification/realtime/realtime_scope.dart';
+import '../../features/notification/push/push_scope.dart';
+import '../../features/notification/push/push_service.dart';
+import '../../features/notification/notification_scope.dart';
 import 'package:flutter/material.dart';
 import '../../features/calendar/calendar_page.dart';
 import '../../features/course/course_management_page.dart';
@@ -25,6 +30,43 @@ class MainTabShell extends StatefulWidget {
 
 class _MainTabShellState extends State<MainTabShell> {
   late int _index = widget.initialIndex;
+  PushService? _push;
+  bool _opening = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final push = PushScope.maybeOf(context);
+    if (_push != push) {
+      _push?.opened.removeListener(_openPush);
+      _push = push;
+      _push?.opened.addListener(_openPush);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openPush());
+  }
+
+  Future<void> _openPush() async {
+    if (!mounted || _opening || !(ModalRoute.of(context)?.isCurrent ?? false)) {
+      return;
+    }
+    final item = _push?.opened.value;
+    if (item == null) return;
+    _opening = true;
+    final notifications = NotificationScope.of(context);
+    await notifications.markRead(item.id);
+    if (mounted && notifications.error == null) {
+      setState(() => _index = item.destinationIndex);
+      final realtime = RealtimeScope.maybeOf(context);
+      if (realtime != null) unawaited(realtime.sendReceipt(item.id, 'opened'));
+      if (_push?.opened.value == item) _push?.opened.value = null;
+    }
+    _opening = false;
+  }
+
+  @override
+  void dispose() {
+    _push?.opened.removeListener(_openPush);
+    super.dispose();
+  }
 
   static const List<Widget> _pages = [
     HomeDashboardPage(),
@@ -38,7 +80,10 @@ class _MainTabShellState extends State<MainTabShell> {
   @override
   Widget build(BuildContext context) {
     final screenSize = AppBreakpoints.of(context);
-    final content = IndexedStack(index: _index, children: _pages);
+    final content = NotificationNavigation(
+      select: (index) => setState(() => _index = index),
+      child: IndexedStack(index: _index, children: _pages),
+    );
     void select(int index) => setState(() => _index = index);
 
     if (screenSize == ScreenSize.mobile) {

@@ -6,6 +6,7 @@ import '../../core/widgets/month_calendar_grid.dart';
 import '../../core/widgets/notification_bell_button.dart';
 import '../../core/widgets/responsive_card_grid.dart';
 import '../../core/widgets/titled_card.dart';
+import '../calendar/calendar_scope.dart';
 
 class _HomeTaskItem {
   const _HomeTaskItem({
@@ -38,14 +39,6 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
   // TODO: 로그인 연동 후 실제 사용자 이름으로 교체
   static const String _userName = '가영';
   static const String _userFullName = '염가영';
-
-  // TODO: 실제 동기화 상태로 교체
-  static const String _syncLabel = '동기화됨';
-  static const String _syncStatus = '정상';
-
-  // TODO: 실제 캘린더 데이터 연동 후 교체 (CalendarPage와 동일한 목업 월 사용)
-  static final DateTime _miniCalendarMonth = DateTime(2026, 6, 1);
-  static const Set<int> _miniCalendarEventDays = {3, 8, 13, 18, 26};
 
   // TODO: 실제 오늘 마감 과제 수로 교체
   static const int _todayDueCount = 2;
@@ -261,6 +254,7 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
   }
 
   Widget _buildDesktopBody() {
+    final calendar = CalendarScope.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(40, 32, 40, 32),
       child: Column(
@@ -302,9 +296,9 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(color: _borderColor),
                     ),
-                    child: const Text(
-                      '$_userFullName · $_syncLabel',
-                      style: TextStyle(
+                    child: Text(
+                      '$_userFullName · ${calendar.appLoaded && calendar.appError == null ? '일정 조회됨' : '일정 확인 필요'}',
+                      style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: AppColors.textPrimary,
@@ -337,7 +331,11 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
               Expanded(
                 child: _StatCard(
                   label: '동기화 상태',
-                  value: _syncStatus,
+                  value: calendar.appLoading
+                      ? '조회 중'
+                      : calendar.appLoaded && calendar.appError == null
+                      ? '정상'
+                      : '확인 필요',
                   valueColor: const Color(0xFFD97706),
                 ),
               ),
@@ -366,11 +364,11 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
                 Expanded(
                   flex: 2,
                   child: TitledCard(
-                    title: '${_miniCalendarMonth.month}월 캘린더',
+                    title: '${calendar.month.month}월 캘린더',
                     child: SingleChildScrollView(
                       child: MonthCalendarGrid(
-                        month: _miniCalendarMonth,
-                        eventDays: _miniCalendarEventDays,
+                        month: calendar.month,
+                        eventDays: calendar.eventDays,
                       ),
                     ),
                   ),

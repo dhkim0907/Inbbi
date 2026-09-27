@@ -41,6 +41,18 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <script src="push-inbox.js"></script>
+  <script>
+    // Firebase SDK가 기본 /firebase-messaging-sw.js를 등록한다.
+    // 이미 열린 탭에서 알림을 선택한 경우에도 수신함을 확인한다.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', event => {
+        if (event.data?.type === 'inbbi-push-opened') {
+          window.inbbiPushInbox.onOpened?.();
+        }
+      });
+    }
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

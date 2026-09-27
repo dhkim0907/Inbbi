@@ -44,3 +44,9 @@ app.*.map.json
 # Claude Code project instructions and local settings
 CLAUDE.md
 .claude/
+
+# Local push configuration and test credentials
+config/*.local.json
+.secrets/
+.venv/
+__pycache__/
