@@ -7,6 +7,8 @@ import 'package:http/testing.dart';
 import 'package:inbbi/features/calendar/app_calendar_api.dart';
 import 'package:inbbi/features/calendar/calendar_controller.dart';
 import 'package:inbbi/features/calendar/calendar_event.dart';
+import 'package:inbbi/features/calendar/calendar_event_draft.dart';
+import 'package:inbbi/features/calendar/calendar_event_writer.dart';
 import 'package:inbbi/features/calendar/calendar_page.dart';
 import 'package:inbbi/features/calendar/calendar_scope.dart';
 import 'package:inbbi/features/settings/settings_page.dart';
@@ -14,6 +16,7 @@ import 'package:inbbi/features/home/home_dashboard_page.dart';
 import 'package:inbbi/core/widgets/month_calendar_grid.dart';
 import 'package:inbbi/features/calendar/google_calendar_api.dart';
 import 'package:inbbi/features/calendar/google_calendar_auth.dart';
+import 'package:inbbi/features/calendar/google_calendar_server_link.dart';
 import 'package:inbbi/features/notification/notification_scope.dart';
 import 'package:inbbi/features/notification/notification_service.dart';
 
@@ -65,7 +68,51 @@ class _Auth implements GoogleCalendarAuth {
   Future<String?> accessToken({bool interactive = false}) async =>
       account == null ? null : 'test-token';
   @override
+  Future<String?> serverAuthorizationCode() async =>
+      account == null ? null : 'test-server-code';
+  @override
   Future<void> disconnect() async => account = null;
+}
+
+class _ServerLink implements GoogleCalendarServerLink {
+  String? receivedCode;
+  bool disconnected = false;
+  @override
+  bool get configured => true;
+  @override
+  Future<bool> isConnected() async => receivedCode != null && !disconnected;
+  @override
+  Future<void> connect(String authorizationCode) async =>
+      receivedCode = authorizationCode;
+  @override
+  Future<void> disconnect() async => disconnected = true;
+}
+
+class _RecordingWriter implements CalendarEventWriter {
+  final calls = <String>[];
+  @override
+  Future<CalendarEvent> create(CalendarEventDraft draft, String token) async {
+    calls.add('create:$token');
+    return CalendarEvent(
+      id: 'server:created',
+      source: CalendarSource.appServer,
+      title: draft.title,
+      category: 'Google',
+      start: draft.start,
+      end: draft.end,
+      allDay: draft.allDay,
+    );
+  }
+
+  @override
+  Future<CalendarEvent> update(
+    String eventId,
+    CalendarEventDraft draft,
+    String token,
+  ) async {
+    calls.add('update:$eventId:$token');
+    return create(draft, token);
+  }
 }
 
 class _InteractiveAuth extends _Auth {
@@ -79,6 +126,87 @@ class _InteractiveAuth extends _Auth {
 }
 
 void main() {
+  test('서버 연결 중 생성·수정은 앱 인증으로 전달한다', () async {
+    final serverWriter = _RecordingWriter();
+    final directWriter = _RecordingWriter();
+    final session = CalendarSession()..setToken('app-session');
+    final controller = CalendarController(
+      appApi: _AppApi(),
+      session: session,
+      googleAuth: _Auth(),
+      googleApi: _GoogleApi(),
+      appWriter: serverWriter,
+      googleWriter: directWriter,
+    )..serverLinked = true;
+    addTearDown(controller.dispose);
+    final draft = CalendarEventDraft(
+      title: '시험',
+      start: DateTime.utc(2026, 9, 27, 9),
+      end: DateTime.utc(2026, 9, 27, 10),
+      allDay: false,
+    );
+    await controller.createGoogleEvent(draft);
+    await controller.updateGoogleEvent('server:created', draft);
+    expect(serverWriter.calls, [
+      'create:app-session',
+      'update:server:created:app-session',
+      'create:app-session',
+    ]);
+    expect(directWriter.calls, isEmpty);
+  });
+  test('앱 인증이 있을 때만 Google 서버 코드를 연결한다', () async {
+    final auth = _Auth()
+      ..account = const GoogleCalendarAccount('id', 'test@example.com');
+    final session = CalendarSession();
+    final server = _ServerLink();
+    final controller = CalendarController(
+      appApi: _AppApi(),
+      session: session,
+      googleAuth: auth,
+      googleApi: _GoogleApi(),
+      serverLink: server,
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.connectGoogleToServer();
+    expect(server.receivedCode, isNull);
+    session.setToken('app-session');
+    await controller.connectGoogleToServer();
+    expect(server.receivedCode, 'test-server-code');
+    expect(controller.serverLinked, true);
+    await controller.disconnectGoogleFromServer();
+    expect(server.disconnected, true);
+  });
+
+  test('다음 로그인에서 서버 연결을 복원하고 Google 직접 조회를 합치지 않는다', () async {
+    final server = _ServerLink()..receivedCode = 'previous-code';
+    final session = CalendarSession();
+    final app = _AppApi()
+      ..events = [
+        CalendarEvent(
+          id: 'server:google',
+          source: CalendarSource.appServer,
+          title: '서버 일정',
+          category: 'Google',
+          start: DateTime(2026, 9, 27),
+          end: DateTime(2026, 9, 28),
+          allDay: true,
+        ),
+      ];
+    final controller = CalendarController(
+      appApi: app,
+      session: session,
+      googleAuth: _Auth(),
+      googleApi: _GoogleApi(),
+      serverLink: server,
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    controller.setAppToken('new-session');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(controller.serverLinked, true);
+    expect(controller.events.map((event) => event.id), ['server:google']);
+  });
   test('앱 서버 일정의 종일 종료 날짜는 포함하지 않는다', () {
     final event = parseAppCalendarEvent({
       'id': 's1',
@@ -351,6 +479,12 @@ void main() {
         ),
       );
       await tester.pump();
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey('calendar-month-card')))
+            .height,
+        lessThan(400),
+      );
       await tester.ensureVisible(find.text('27'));
       await tester.tap(find.text('27'));
       await tester.pump();
@@ -406,7 +540,7 @@ void main() {
   });
 
   for (final width in [430.0, 840.0]) {
-    testWidgets('기존 Google 설정 행 너비 $width', (tester) async {
+    testWidgets('Google 설정 연결 행 너비 $width', (tester) async {
       tester.view.physicalSize = Size(width, 900);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -432,12 +566,50 @@ void main() {
         ),
       );
       expect(find.text('Google Calendar 연동'), findsOneWidget);
-      expect(find.text('연동하기'), findsNothing);
-      expect(find.text('Google 로그인'), findsOneWidget);
+      expect(find.text('눌러서 연결'), findsOneWidget);
       expect(find.text('테스트 일정 서버'), findsNothing);
       expect(find.text('앱 외부 알림'), findsNothing);
       expect(find.text('받을 알림 종류'), findsNothing);
       expect(find.text('테스트 서버 실시간 알림'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final width in [390.0, 840.0]) {
+    testWidgets('설정 서버 연결 버튼 너비 $width', (tester) async {
+      tester.view.physicalSize = Size(width, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final session = CalendarSession()..setToken('app-session');
+      final link = _ServerLink();
+      final controller = CalendarController(
+        appApi: _AppApi(),
+        session: session,
+        googleAuth: _Auth()
+          ..account = const GoogleCalendarAccount('id', 'test@example.com'),
+        googleApi: _GoogleApi(),
+        serverLink: link,
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      final notifications = NotificationService(_NotificationStorage());
+      addTearDown(notifications.dispose);
+      await notifications.initialize();
+      await tester.pumpWidget(
+        CalendarScope(
+          controller: controller,
+          child: NotificationScope(
+            service: notifications,
+            child: const MaterialApp(home: SettingsPage()),
+          ),
+        ),
+      );
+      expect(find.text('Google 연결 계속'), findsOneWidget);
+      await tester.tap(find.text('Google 연결 계속'));
+      await tester.pumpAndSettle();
+      expect(link.receivedCode, 'test-server-code');
+      expect(controller.serverLinked, true);
       expect(tester.takeException(), isNull);
     });
   }

@@ -1,14 +1,15 @@
-import '../notification/realtime/realtime_scope.dart';
-import '../notification/push/push_scope.dart';
-import '../calendar/calendar_scope.dart';
-import '../calendar/google_sign_in_button.dart' as google_button;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
 import '../../core/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/base_view.dart';
 import '../../core/widgets/notification_bell_button.dart';
+import '../calendar/calendar_scope.dart';
+import '../calendar/google_sign_in_button.dart' as google_button;
+import '../notification/push/push_scope.dart';
+import '../notification/realtime/realtime_scope.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -133,10 +134,17 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _handleGoogleCalendarTap() async {
     final calendar = CalendarScope.of(context);
-    if (calendar.googleAccount != null) {
-      if (calendar.googleAuthorizationRequired) {
-        await calendar.authorizeGoogle();
-        return;
+    if (calendar.serverLinked || calendar.googleAccount != null) {
+      if (calendar.serverLinked) {
+        try {
+          await calendar.disconnectGoogleFromServer();
+        } catch (_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('일정 서버의 Google 연결을 해제하지 못했어요.')),
+          );
+          return;
+        }
       }
       await calendar.disconnectGoogle();
       return;
@@ -352,34 +360,61 @@ class _SettingsPageState extends State<SettingsPage> {
       Builder(
         builder: (context) {
           final calendar = CalendarScope.of(context);
+          final linked = calendar.serverConnectionAvailable
+              ? calendar.serverLinked
+              : calendar.googleAccount != null;
+          final needsServerLink =
+              calendar.serverConnectionAvailable &&
+              !calendar.serverLinked &&
+              calendar.googleAccount != null;
+          final needsAuthorization =
+              !calendar.serverConnectionAvailable &&
+              calendar.googleAccount != null &&
+              calendar.googleAuthorizationRequired;
+          Widget? action;
+          if (needsServerLink) {
+            action = TextButton(
+              onPressed: calendar.serverLinkBusy
+                  ? null
+                  : calendar.connectGoogleToServer,
+              child: const Text('Google 연결 계속'),
+            );
+          } else if (needsAuthorization) {
+            action = TextButton(
+              onPressed: calendar.authorizeGoogle,
+              child: const Text('일정 권한 허용'),
+            );
+          } else if (!linked && kIsWeb && calendar.googleAuth.configured) {
+            action = calendar.googleReady
+                ? google_button.buildGoogleSignInButton()
+                : const Text('Google 로그인 준비 중');
+          }
           return _buildStatusRow(
             label: 'Google Calendar 연동',
-            linked: calendar.googleAccount != null,
-            onLabel: calendar.googleAuthorizationRequired ? '권한 허용' : '연동됨',
-            offLabel: 'Google 로그인',
+            linked: linked,
+            onLabel: '연동됨 · 눌러서 해제',
+            offLabel: calendar.googleAuth.configured ? '눌러서 연결' : 'OAuth 설정 필요',
             onTap:
-                calendar.googleAccount != null &&
-                    !calendar.googleAuthorizationRequired
+                linked || (!kIsWeb && !needsServerLink && !needsAuthorization)
                 ? _handleGoogleCalendarTap
                 : null,
-            trailing: calendar.googleAccount == null
-                ? kIsWeb &&
-                          calendar.googleAuth.configured &&
-                          calendar.googleReady
-                      ? Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: google_button.buildGoogleSignInButton(),
-                        )
-                      : TextButton(
-                          onPressed: _handleGoogleCalendarTap,
-                          child: const Text('Google 로그인'),
-                        )
-                : calendar.googleAuthorizationRequired
-                ? TextButton(
-                    onPressed: calendar.authorizeGoogle,
-                    child: const Text('일정 권한 허용'),
-                  )
-                : null,
+            trailing: action,
+          );
+        },
+      ),
+      Builder(
+        builder: (context) {
+          final calendar = CalendarScope.of(context);
+          if (calendar.serverLinkError == null ||
+              !calendar.serverConnectionAvailable) {
+            return const SizedBox.shrink();
+          }
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              calendar.serverLinkError!,
+              style: const TextStyle(color: AppColors.error),
+            ),
           );
         },
       ),

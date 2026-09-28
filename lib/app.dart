@@ -22,6 +22,8 @@ import 'features/calendar/calendar_controller.dart';
 import 'features/calendar/calendar_scope.dart';
 import 'features/calendar/google_calendar_api.dart';
 import 'features/calendar/google_calendar_auth.dart';
+import 'features/calendar/google_calendar_server_link.dart';
+import 'features/calendar/calendar_event_writer.dart';
 
 class InbbiApp extends StatefulWidget {
   const InbbiApp({super.key});
@@ -70,6 +72,12 @@ class _InbbiAppState extends State<InbbiApp> with WidgetsBindingObserver {
       session: _calendarSession,
       googleAuth: _calendarAuth,
       googleApi: HttpGoogleCalendarApi(),
+      appWriter: HttpAppCalendarEventWriter(baseUrl: calendarBaseUrl),
+      googleWriter: HttpGoogleCalendarEventWriter(),
+      serverLink: HttpGoogleCalendarServerLink(
+        baseUrl: calendarBaseUrl,
+        session: _calendarSession,
+      ),
     )..initialize();
     WidgetsBinding.instance.addObserver(this);
     _push = PushService(

@@ -4,8 +4,11 @@ import 'package:flutter/foundation.dart';
 
 import 'app_calendar_api.dart';
 import 'calendar_event.dart';
+import 'calendar_event_draft.dart';
+import 'calendar_event_writer.dart';
 import 'google_calendar_api.dart';
 import 'google_calendar_auth.dart';
+import 'google_calendar_server_link.dart';
 
 class CalendarController extends ChangeNotifier {
   CalendarController({
@@ -13,12 +16,18 @@ class CalendarController extends ChangeNotifier {
     required this.session,
     required this.googleAuth,
     required this.googleApi,
+    this.serverLink,
+    this.appWriter,
+    this.googleWriter,
   });
 
   final AppCalendarApi appApi;
   final CalendarSession session;
   final GoogleCalendarAuth googleAuth;
   final GoogleCalendarApi googleApi;
+  final GoogleCalendarServerLink? serverLink;
+  final CalendarEventWriter? appWriter;
+  final CalendarEventWriter? googleWriter;
   StreamSubscription<GoogleCalendarAccount?>? _accountSubscription;
   List<CalendarEvent> _appEvents = [];
   List<CalendarEvent> _googleEvents = [];
@@ -33,12 +42,18 @@ class CalendarController extends ChangeNotifier {
   bool googleReady = false;
   String? appError;
   String? googleError;
+  String? serverLinkError;
+  bool serverLinkBusy = false;
+  bool serverLinked = false;
+  bool get serverConnectionAvailable =>
+      session.token != null && serverLink?.configured == true;
   int _generation = 0;
   bool _disposed = false;
 
   List<CalendarEvent> get events => [
     ..._appEvents.where((event) => event.overlapsMonth(month)),
-    ..._googleEvents.where((event) => event.overlapsMonth(month)),
+    if (!serverLinked)
+      ..._googleEvents.where((event) => event.overlapsMonth(month)),
   ]..sort((a, b) => a.start.compareTo(b.start));
 
   Set<int> get eventDays => {
@@ -69,7 +84,13 @@ class CalendarController extends ChangeNotifier {
       googleReceivedCount = 0;
       googleAuthorizationRequired = value != null;
       _emit();
-      if (value != null) unawaited(refreshGoogle());
+      if (value != null) {
+        if (serverConnectionAvailable) {
+          unawaited(connectGoogleToServer());
+        } else {
+          unawaited(refreshGoogle());
+        }
+      }
     });
     await refreshApp();
     try {
@@ -101,6 +122,36 @@ class CalendarController extends ChangeNotifier {
     await Future.wait([refreshApp(), refreshGoogle()]);
   }
 
+  /// Creates an event on the connected user's primary Google calendar.
+  Future<CalendarEvent> createGoogleEvent(CalendarEventDraft draft) async {
+    final result = serverLinked
+        ? await _serverWriter.create(draft, _appToken)
+        : await _directWriter.create(draft, await _googleToken);
+    await refresh();
+    return result;
+  }
+
+  /// [eventId] must come from this calendar's Google/server event list.
+  Future<CalendarEvent> updateGoogleEvent(
+    String eventId,
+    CalendarEventDraft draft,
+  ) async {
+    final result = serverLinked
+        ? await _serverWriter.update(eventId, draft, _appToken)
+        : await _directWriter.update(eventId, draft, await _googleToken);
+    await refresh();
+    return result;
+  }
+
+  CalendarEventWriter get _serverWriter =>
+      appWriter ?? (throw const CalendarUnavailable());
+  CalendarEventWriter get _directWriter =>
+      googleWriter ?? (throw const CalendarUnavailable());
+  String get _appToken => session.token ?? (throw const CalendarAuthRequired());
+  Future<String> get _googleToken async =>
+      await googleAuth.accessToken() ??
+      (throw const GoogleCalendarAuthRequired());
+
   Future<void> refreshApp() async {
     final requestMonth = month;
     final generation = _generation;
@@ -126,6 +177,7 @@ class CalendarController extends ChangeNotifier {
   }
 
   Future<void> refreshGoogle({bool interactive = false}) async {
+    if (serverLinked) return;
     final account = googleAccount;
     if (account == null) return;
     final requestMonth = month;
@@ -168,8 +220,22 @@ class CalendarController extends ChangeNotifier {
     _generation++;
     _appEvents = [];
     appLoaded = false;
+    serverLinked = false;
     _emit();
-    unawaited(refreshApp());
+    unawaited(_refreshServerLinkThenEvents());
+  }
+
+  Future<void> _refreshServerLinkThenEvents() async {
+    final link = serverLink;
+    if (link != null && link.configured && session.token != null) {
+      try {
+        serverLinked = await link.isConnected();
+      } catch (_) {
+        serverLinkError = '일정 서버 연결 상태를 확인하지 못했어요.';
+      }
+      _emit();
+    }
+    await refreshApp();
   }
 
   Future<void> connectGoogle() async {
@@ -177,7 +243,10 @@ class CalendarController extends ChangeNotifier {
       final account = await googleAuth.connect();
       if (account == null) return;
       googleAccount = account;
-      await authorizeGoogle();
+      if (!kIsWeb && serverConnectionAvailable && !serverLinked) {
+        await connectGoogleToServer();
+      }
+      if (!serverConnectionAvailable) await authorizeGoogle();
     } catch (_) {
       googleError = 'Google 계정을 연결하지 못했어요.';
       _emit();
@@ -185,6 +254,48 @@ class CalendarController extends ChangeNotifier {
   }
 
   Future<void> authorizeGoogle() => refreshGoogle(interactive: true);
+
+  /// Call from a user gesture after app authentication is available.
+  Future<void> connectGoogleToServer() async {
+    final link = serverLink;
+    if (link == null || !link.configured || session.token == null) {
+      serverLinkError = '일정 서버 로그인이 필요해요.';
+      _emit();
+      return;
+    }
+    if (googleAccount == null || serverLinkBusy) return;
+    serverLinkBusy = true;
+    serverLinkError = null;
+    _emit();
+    try {
+      final code = await googleAuth.serverAuthorizationCode();
+      if (code == null) {
+        serverLinkError = 'Google 서버 연결 권한을 받지 못했어요. 다시 시도해 주세요.';
+        return;
+      }
+      await link.connect(code);
+      serverLinked = true;
+      googleAuthorizationRequired = false;
+      await refreshApp();
+    } on GoogleServerLinkAuthRequired {
+      serverLinkError = '일정 서버 로그인이 필요해요.';
+    } catch (_) {
+      serverLinkError = 'Google 계정을 일정 서버에 연결하지 못했어요.';
+    } finally {
+      serverLinkBusy = false;
+      _emit();
+    }
+  }
+
+  Future<void> disconnectGoogleFromServer() async {
+    final link = serverLink;
+    if (link == null || !link.configured || session.token == null) return;
+    await link.disconnect();
+    serverLinked = false;
+    _appEvents = [];
+    _emit();
+    await Future.wait([refreshApp(), refreshGoogle()]);
+  }
 
   Future<void> disconnectGoogle() async {
     try {

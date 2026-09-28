@@ -3,8 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
-const calendarReadScope =
-    'https://www.googleapis.com/auth/calendar.events.readonly';
+const calendarEventsScope = 'https://www.googleapis.com/auth/calendar.events';
 
 class GoogleCalendarAccount {
   const GoogleCalendarAccount(this.id, this.email);
@@ -19,6 +18,7 @@ abstract interface class GoogleCalendarAuth {
   Future<GoogleCalendarAccount?> restore();
   Future<GoogleCalendarAccount?> connect();
   Future<String?> accessToken({bool interactive = false});
+  Future<String?> serverAuthorizationCode();
   Future<void> disconnect();
 }
 
@@ -93,7 +93,9 @@ class GoogleSignInCalendarAuth implements GoogleCalendarAuth {
   Future<GoogleCalendarAccount?> connect() async {
     await _initialize();
     if (!configured || !_google.supportsAuthenticate()) return null;
-    final account = await _google.authenticate(scopeHint: [calendarReadScope]);
+    final account = await _google.authenticate(
+      scopeHint: [calendarEventsScope],
+    );
     _account = account;
     return GoogleCalendarAccount(account.id, account.email);
   }
@@ -105,11 +107,22 @@ class GoogleSignInCalendarAuth implements GoogleCalendarAuth {
     if (account == null) return null;
     final client = account.authorizationClient;
     final authorization =
-        await client.authorizationForScopes([calendarReadScope]) ??
+        await client.authorizationForScopes([calendarEventsScope]) ??
         (interactive
-            ? await client.authorizeScopes([calendarReadScope])
+            ? await client.authorizeScopes([calendarEventsScope])
             : null);
     return authorization?.accessToken;
+  }
+
+  @override
+  Future<String?> serverAuthorizationCode() async {
+    await _initialize();
+    final account = _account;
+    if (account == null) return null;
+    final authorization = await account.authorizationClient.authorizeServer([
+      calendarEventsScope,
+    ]);
+    return authorization?.serverAuthCode;
   }
 
   @override

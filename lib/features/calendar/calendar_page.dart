@@ -114,12 +114,8 @@ class _CalendarPageState extends State<CalendarPage> {
       ),
       if (controller.appLoading || controller.googleLoading)
         const LinearProgressIndicator(),
-      if (controller.googleAuthorizationRequired)
-        TextButton(
-          onPressed: controller.authorizeGoogle,
-          child: const Text('Google 일정 조회 권한 허용'),
-        ),
-      if (controller.googleAccount != null &&
+      if (!controller.serverConnectionAvailable &&
+          controller.googleAccount != null &&
           controller.googleLoaded &&
           controller.googleReceivedCount == 0)
         const Text('이 달의 Google 기본 캘린더에 일정이 없어요.'),
@@ -127,6 +123,7 @@ class _CalendarPageState extends State<CalendarPage> {
   );
 
   Widget _grid(CalendarController controller) => Container(
+    key: const ValueKey('calendar-month-card'),
     width: double.infinity,
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
@@ -202,7 +199,7 @@ class _CalendarPageState extends State<CalendarPage> {
       );
 
   Widget _desktop(CalendarController controller, List<CalendarEvent> events) =>
-      Padding(
+      SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(40, 32, 40, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -211,18 +208,13 @@ class _CalendarPageState extends State<CalendarPage> {
             const SizedBox(height: 24),
             _toolbar(controller),
             const SizedBox(height: 20),
-            Expanded(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(flex: 3, child: _grid(controller)),
-                  const SizedBox(width: 24),
-                  Expanded(
-                    flex: 2,
-                    child: SingleChildScrollView(child: _dayList(events)),
-                  ),
-                ],
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 3, child: _grid(controller)),
+                const SizedBox(width: 24),
+                Expanded(flex: 2, child: _dayList(events)),
+              ],
             ),
           ],
         ),
