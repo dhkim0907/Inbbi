@@ -73,7 +73,7 @@ void main() {
       expect(find.text('시작 시간'), findsOneWidget);
       final datePosition = tester.getTopLeft(find.text('시작 날짜'));
       final timePosition = tester.getTopLeft(find.text('시작 시간'));
-      if (width >= 840) {
+      if (width >= 390) {
         expect(datePosition.dy, timePosition.dy);
       } else {
         expect(timePosition.dy, greaterThan(datePosition.dy));
@@ -106,7 +106,10 @@ void main() {
     await openDialog(tester, (draft) async => saved = draft);
     await tester.tap(find.text('할일'));
     await tester.pumpAndSettle();
-    expect(find.text('어떤 할일이 있나요?'), findsOneWidget);
+    expect(find.text('무엇을 해야 하나요?'), findsOneWidget);
+    expect(find.text('마감 날짜'), findsOneWidget);
+    expect(find.text('종료 날짜'), findsNothing);
+    expect(find.byKey(const ValueKey('calendar-event-location')), findsNothing);
     await tester.enterText(
       find.byKey(const ValueKey('calendar-event-title')),
       '책 반납',
@@ -114,6 +117,9 @@ void main() {
     await tester.tap(find.text('저장'));
     await tester.pumpAndSettle();
     expect(saved!.category, '할일');
+    // 할일은 선택한 시각을 종료(마감)로 사용하고, 일정 API의 양수 기간을 유지한다.
+    expect(saved!.end, DateTime(2026, 12, 31, 9));
+    expect(saved!.start, DateTime(2026, 12, 31, 8, 59));
     await openDialog(tester, (_) async => fail('취소 시 저장하면 안 된다'));
     await tester.tap(find.byTooltip('닫기'));
     await tester.pumpAndSettle();

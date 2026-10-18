@@ -6,6 +6,7 @@ import 'app_calendar_api.dart';
 import 'calendar_date_picker_dialog.dart';
 import 'calendar_event_draft.dart';
 import 'calendar_event.dart';
+import 'calendar_design.dart';
 import 'calendar_event_writer.dart';
 import 'google_calendar_api.dart';
 
@@ -42,6 +43,7 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
   bool _allDay = false;
   bool _saving = false;
   String? _error;
+  bool get _todo => _category == '할일';
 
   @override
   void initState() {
@@ -59,9 +61,14 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
       _memo.text = event.memo;
       _category = event.category;
       _allDay = event.allDay;
-      _startDate = DateTime(start.year, start.month, start.day);
+      final initialDate = _todo ? end : start;
+      _startDate = DateTime(
+        initialDate.year,
+        initialDate.month,
+        initialDate.day,
+      );
       _endDate = DateTime(end.year, end.month, end.day);
-      _startTime = TimeOfDay.fromDateTime(start);
+      _startTime = TimeOfDay.fromDateTime(_todo ? end : start);
       _endTime = TimeOfDay.fromDateTime(end);
       _saveTarget =
           event.source == CalendarSource.google || event.calendarId == 'primary'
@@ -118,7 +125,7 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
 
   Future<void> _save() async {
     if (_saving || !_formKey.currentState!.validate()) return;
-    final start = _allDay
+    final selectedStart = _allDay
         ? _startDate
         : DateTime(
             _startDate.year,
@@ -127,7 +134,21 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
             _startTime.hour,
             _startTime.minute,
           );
-    final end = _allDay
+    final deadline = DateTime(
+      _startDate.year,
+      _startDate.month,
+      _startDate.day,
+      _startTime.hour,
+      _startTime.minute,
+    );
+    final start = _todo && !_allDay
+        ? deadline.subtract(const Duration(minutes: 1))
+        : selectedStart;
+    final end = _todo
+        ? (_allDay
+              ? DateTime(_startDate.year, _startDate.month, _startDate.day + 1)
+              : deadline)
+        : _allDay
         ? DateTime(_endDate.year, _endDate.month, _endDate.day + 1)
         : DateTime(
             _endDate.year,
@@ -136,7 +157,7 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
             _endTime.hour,
             _endTime.minute,
           );
-    if (_endDate.isBefore(_startDate) || !end.isAfter(start)) {
+    if ((!_todo && _endDate.isBefore(_startDate)) || !end.isAfter(start)) {
       setState(() => _error = '종료 날짜와 시간은 시작 이후로 설정해 주세요.');
       return;
     }
@@ -180,14 +201,14 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
     hintStyle: const TextStyle(color: Color(0xFF858585)),
     filled: true,
     fillColor: Colors.white,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 13),
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
     enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(10),
       borderSide: const BorderSide(color: _borderColor, width: 1.3),
     ),
     focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(10),
       borderSide: const BorderSide(color: Color(0xFF8CB7F0), width: 3),
     ),
   );
@@ -199,7 +220,7 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
         text: text,
         style: const TextStyle(
           color: _labelColor,
-          fontSize: 15,
+          fontSize: 12,
           fontWeight: FontWeight.w600,
         ),
         children: [
@@ -222,17 +243,17 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
       _label(label),
       SizedBox(
         width: double.infinity,
-        height: 58,
+        height: 47,
         child: OutlinedButton(
           onPressed: _saving || (!date && _allDay)
               ? null
               : () => date ? _pickDate(start) : _pickTime(start),
           style: OutlinedButton.styleFrom(
             foregroundColor: AppColors.textPrimary,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             side: const BorderSide(color: _borderColor, width: 1.3),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(10),
             ),
           ),
           child: Row(
@@ -244,14 +265,11 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
                       : _allDay
                       ? '하루 종일'
                       : _timeLabel(start ? _startTime : _endTime),
-                  style: const TextStyle(fontSize: 16),
+                  style: const TextStyle(fontSize: 13),
                 ),
               ),
               const SizedBox(width: 8),
-              Icon(
-                date ? Icons.calendar_today_outlined : Icons.access_time,
-                size: 20,
-              ),
+              CalendarDesignIcon(date ? 'input_date' : 'input_time'),
             ],
           ),
         ),
@@ -261,9 +279,25 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
 
   Widget _dateTimeRow(bool start) => LayoutBuilder(
     builder: (context, constraints) {
-      final date = _pickerField(start ? '시작 날짜' : '종료 날짜', start, date: true);
-      final time = _pickerField(start ? '시작 시간' : '종료 시간', start, date: false);
-      if (constraints.maxWidth < 400) {
+      final date = _pickerField(
+        _todo
+            ? '마감 날짜'
+            : start
+            ? '시작 날짜'
+            : '종료 날짜',
+        start,
+        date: true,
+      );
+      final time = _pickerField(
+        _todo
+            ? '마감 시간'
+            : start
+            ? '시작 시간'
+            : '종료 시간',
+        start,
+        date: false,
+      );
+      if (constraints.maxWidth < 270) {
         return Column(children: [date, const SizedBox(height: 18), time]);
       }
       return Row(
@@ -298,7 +332,7 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
                     ? null
                     : () => setState(() => _category = category),
                 style: TextButton.styleFrom(
-                  minimumSize: const Size(0, 48),
+                  minimumSize: const Size(0, 36),
                   backgroundColor: _category == category
                       ? Colors.white
                       : Colors.transparent,
@@ -309,7 +343,8 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   textStyle: const TextStyle(
-                    fontSize: 16,
+                    fontFamily: 'NotoSansKR',
+                    fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -328,12 +363,12 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
       backgroundColor: AppColors.surface,
       surfaceTintColor: Colors.transparent,
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(23)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 640),
+        constraints: const BoxConstraints(maxWidth: 470),
         child: Padding(
           padding: EdgeInsets.all(
-            MediaQuery.sizeOf(context).width < 600 ? 24 : 32,
+            MediaQuery.sizeOf(context).width < 600 ? 21 : 25,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -342,18 +377,14 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
                 children: [
                   Expanded(
                     child: Text(
-                      widget.initialEvent == null ? '일정 추가' : '일정 수정',
-                      style: AppTextStyles.heading1.copyWith(fontSize: 28),
+                      '$_category ${widget.initialEvent == null ? '추가' : '수정'}',
+                      style: AppTextStyles.heading1.copyWith(fontSize: 21),
                     ),
                   ),
                   IconButton(
                     tooltip: '닫기',
                     onPressed: _saving ? null : () => Navigator.pop(context),
-                    icon: const Icon(
-                      Icons.close,
-                      color: AppColors.calendarStatus,
-                      size: 26,
-                    ),
+                    icon: const CalendarDesignIcon('close'),
                   ),
                 ],
               ),
@@ -367,7 +398,7 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _tabs(),
-                        const SizedBox(height: 28),
+                        const SizedBox(height: 22),
                         _label('제목', required: true),
                         TextFormField(
                           key: const ValueKey('calendar-event-title'),
@@ -375,7 +406,7 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
                           autofocus: true,
                           enabled: !_saving,
                           decoration: _inputDecoration(
-                            _category == '할일' ? '어떤 할일이 있나요?' : '어떤 일정이 있나요?',
+                            _category == '할일' ? '무엇을 해야 하나요?' : '어떤 일정이 있나요?',
                           ),
                           validator: (value) =>
                               value == null || value.trim().isEmpty
@@ -408,17 +439,19 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
                         ),
                         const SizedBox(height: 20),
                         _dateTimeRow(true),
-                        const SizedBox(height: 24),
-                        _dateTimeRow(false),
-                        const SizedBox(height: 24),
-                        _label('장소'),
-                        TextFormField(
-                          key: const ValueKey('calendar-event-location'),
-                          controller: _location,
-                          enabled: !_saving,
-                          decoration: _inputDecoration('장소를 입력하세요 (선택)'),
-                        ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 18),
+                        if (!_todo) ...[
+                          _dateTimeRow(false),
+                          const SizedBox(height: 18),
+                          _label('장소'),
+                          TextFormField(
+                            key: const ValueKey('calendar-event-location'),
+                            controller: _location,
+                            enabled: !_saving,
+                            decoration: _inputDecoration('장소를 입력하세요 (선택)'),
+                          ),
+                        ],
+                        const SizedBox(height: 18),
                         _label('메모'),
                         TextFormField(
                           key: const ValueKey('calendar-event-memo'),
@@ -428,7 +461,7 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
                           maxLines: 5,
                           decoration: _inputDecoration('기억할 내용을 남겨주세요 (선택)'),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 18),
                         _label('저장 대상'),
                         Row(
                           children: [
@@ -480,6 +513,7 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
+                    key: const ValueKey('calendar-event-save'),
                     style: FilledButton.styleFrom(backgroundColor: _blue),
                     onPressed: _saving ? null : _save,
                     child: _saving

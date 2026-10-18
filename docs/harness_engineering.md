@@ -18,6 +18,7 @@
 | 작업 | 코드 시작점 | 관련 검증 / 문서 |
 |---|---|---|
 | 캘린더 화면·일정 조작 | `lib/features/calendar/calendar_page.dart`, `calendar_controller.dart`, `calendar_event_writer.dart` | `test/features/calendar/`, `test/core/widgets/calendar_week_event_bars_test.dart`, [캘린더 개발](calendar_development.md) |
+| 공지 UI·로컬 수집처 설정 | `lib/features/notice_feed/notice_feed_page.dart`, `notice_sources.dart`, `notice_source_dialogs.dart` | `test/features/notice_feed/`, [Figma 구현 계획](tasks/2026-10-18-figma-inbbi-ui.md) |
 | Google 계정·일정 API | `lib/features/calendar/google_calendar_auth.dart`, `google_calendar_api.dart`, `google_calendar_server_link.dart` | `test/features/calendar/calendar_service_test.dart`, `google_calendar_server_link_test.dart`, [연동 계획](calendar_integration_plan.md) |
 | 앱 내부 알림·읽음 상태 | `lib/features/notification/notification_service.dart`, `notification_page.dart` | `test/features/notification/`, [내부 알림](in_app_notifications.md), [프로토콜](notification_protocol.md) |
 | 푸시·실시간 수신 | `lib/features/notification/push/`, `lib/features/notification/realtime/`, `tool/push_server/` | `test/features/notification/`, `tool/push_server/test_server.py`, [푸시 알림](push_notifications.md) |
@@ -40,6 +41,7 @@ bash tool/verify.sh
 
 ```sh
 bash tool/verify.sh calendar
+bash tool/verify.sh notices
 bash tool/verify.sh notifications
 bash tool/verify.sh auth
 bash tool/verify.sh settings

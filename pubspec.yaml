@@ -28,6 +28,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icons/calendar/
+    - assets/icons/notice/
   fonts:
     - family: NotoSansKR
       fonts:

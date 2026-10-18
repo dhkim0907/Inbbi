@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import 'calendar_event.dart';
+import 'calendar_design.dart';
 import 'app_calendar_api.dart';
 import 'calendar_event_writer.dart';
 import 'google_calendar_api.dart';
@@ -107,7 +108,7 @@ class _CalendarEventDetailsDialogState
       event: event,
       now: DateTime.now(),
     );
-    final color = AppColors.calendarCategory(event.category);
+    final color = CalendarDesign.category(event.category);
     final start = event.allDay ? event.start : event.start.toLocal();
     final end = event.allDay
         ? event.end.subtract(const Duration(days: 1))
@@ -129,11 +130,11 @@ class _CalendarEventDetailsDialogState
       child: Dialog(
         backgroundColor: AppColors.surface,
         insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(23)),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
+          constraints: const BoxConstraints(maxWidth: 470),
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(30),
+            padding: const EdgeInsets.all(25),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -141,7 +142,7 @@ class _CalendarEventDetailsDialogState
                 Row(
                   children: [
                     const Expanded(
-                      child: Text('상세 내용', style: AppTextStyles.heading1),
+                      child: Text('상세 내용', style: AppTextStyles.heading2),
                     ),
                     IconButton(
                       tooltip: '상세보기 닫기',
@@ -154,27 +155,30 @@ class _CalendarEventDetailsDialogState
                 const SizedBox(height: 12),
                 _badge(event.category, color),
                 const SizedBox(height: 16),
-                Text(event.title, style: AppTextStyles.heading1),
+                Text(
+                  event.title,
+                  style: AppTextStyles.heading2.copyWith(fontSize: 20),
+                ),
                 if (presentation.hasDeadline) ...[
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 25),
                   _badge(presentation.statusLabel, statusColor),
                 ],
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
                 _field('날짜', dateLabel),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
                 _field('시간', timeLabel),
                 if (event.location.trim().isNotEmpty) ...[
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
                   _field('장소', event.location),
                 ],
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
                 _field('메모', event.memo.trim().isEmpty ? '메모 없음' : event.memo),
                 if (_error != null) ...[
                   const SizedBox(height: 20),
                   Text(_error!, style: const TextStyle(color: AppColors.error)),
                 ],
                 if (widget.onEdit != null || widget.onDelete != null) ...[
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 25),
                   Row(
                     children: [
                       if (widget.onDelete != null)
@@ -199,7 +203,7 @@ class _CalendarEventDetailsDialogState
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFF3778C2),
                             foregroundColor: Colors.white,
-                            minimumSize: const Size(126, 54),
+                            minimumSize: const Size(105, 45),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
                             ),
@@ -234,7 +238,7 @@ class _CalendarEventDetailsDialogState
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       SizedBox(
-        width: 98,
+        width: 82,
         child: Text(
           label,
           style: AppTextStyles.body.copyWith(color: AppColors.calendarStatus),

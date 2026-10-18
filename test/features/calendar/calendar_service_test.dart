@@ -9,6 +9,7 @@ import 'package:http/testing.dart';
 import 'package:inbbi/features/calendar/app_calendar_api.dart';
 import 'package:inbbi/features/calendar/calendar_controller.dart';
 import 'package:inbbi/features/calendar/calendar_event.dart';
+import 'package:inbbi/features/calendar/calendar_design.dart';
 import 'package:inbbi/features/calendar/calendar_event_draft.dart';
 import 'package:inbbi/features/calendar/calendar_event_writer.dart';
 import 'package:inbbi/features/calendar/calendar_page.dart';
@@ -213,9 +214,14 @@ void main() {
               matching: find.byType(Stack),
             )
             .last;
+        // Figma의 기간 막대는 날짜/상태 점 아래, 주 영역 안에 배치된다.
         expect(
-          tester.getCenter(line).dy,
-          closeTo(tester.getCenter(week).dy - (width >= 1200 ? 8 : 2), 0.01),
+          tester.getRect(line).top,
+          greaterThan(tester.getRect(week).top + 40),
+        );
+        expect(
+          tester.getRect(line).bottom,
+          lessThanOrEqualTo(tester.getRect(week).bottom),
         );
       }
       await tester.tap(find.widgetWithText(ActionChip, '과제'));
@@ -689,13 +695,13 @@ void main() {
           find.byKey(const ValueKey('calendar-event-title')),
           '새 일정',
         );
-        final option = find.widgetWithText(
-          ChoiceChip,
-          target == CalendarSaveTarget.appOnly ? '내 캘린더에만 저장' : '구글 캘린더에도 저장',
-        );
+        final option = find.byKey(const ValueKey('calendar-event-google-save'));
         await tester.ensureVisible(option);
-        await tester.tap(option);
-        await tester.pump();
+        final google = target == CalendarSaveTarget.googleCalendar;
+        if (tester.widget<Checkbox>(option).value != google) {
+          await tester.tap(option);
+          await tester.pump();
+        }
         await tester.tap(find.text('저장'));
         await tester.pumpAndSettle();
         expect(
@@ -850,7 +856,7 @@ void main() {
             (decoration) =>
                 decoration.border is Border &&
                 (decoration.border! as Border).top.color ==
-                    const Color(0xFFAC59D6),
+                    CalendarDesign.category('일정'),
           );
       expect(
         decorations.any((decoration) => decoration.color == Colors.transparent),
@@ -858,7 +864,7 @@ void main() {
       );
       expect(
         decorations.any(
-          (decoration) => decoration.color == const Color(0xFFAC59D6),
+          (decoration) => decoration.color == CalendarDesign.category('일정'),
         ),
         true,
       );
@@ -868,10 +874,10 @@ void main() {
       expect(day15, closeTo((day14 + day16) / 2, 0.01));
       expect(find.byType(ActionChip), findsNWidgets(5));
       for (final entry in {
-        '강의': const Color(0xFF5865E8),
-        '과제': const Color(0xFFD49314),
-        '일정': const Color(0xFFAC59D6),
-        '할일': const Color(0xFF25AE91),
+        '강의': CalendarDesign.brand,
+        '과제': CalendarDesign.brand,
+        '일정': CalendarDesign.brand,
+        '할일': CalendarDesign.brand,
       }.entries) {
         final chip = find.widgetWithText(ActionChip, entry.key);
         await tester.ensureVisible(chip);
@@ -937,24 +943,18 @@ void main() {
         tester
             .getSize(find.byKey(const ValueKey('calendar-month-card')))
             .height,
-        lessThan(400),
+        greaterThan(600),
       );
       await tester.ensureVisible(find.text('27'));
       await tester.tap(find.text('27'));
       await tester.pump();
       expect(find.text('서버 일정'), findsOneWidget);
-      expect(find.text('전체'), findsNothing);
-      expect(find.byType(FilterChip), findsNWidgets(5));
-      expect(
-        tester
-            .widgetList<FilterChip>(find.byType(FilterChip))
-            .every((chip) => chip.selected),
-        true,
-      );
-      await tester.tap(find.widgetWithText(FilterChip, '과제'));
+      expect(find.byType(ActionChip), findsNWidgets(5));
+      await tester.ensureVisible(find.widgetWithText(ActionChip, '일정'));
+      await tester.tap(find.widgetWithText(ActionChip, '일정'));
       await tester.pump();
       expect(find.text('서버 일정'), findsNothing);
-      await tester.tap(find.widgetWithText(FilterChip, '과제'));
+      await tester.tap(find.widgetWithText(ActionChip, '전체'));
       await tester.pump();
       expect(find.text('서버 일정'), findsOneWidget);
       expect(tester.takeException(), isNull);

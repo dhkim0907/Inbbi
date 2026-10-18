@@ -7,7 +7,7 @@ cd "$repo_root"
 
 usage() {
   cat <<'EOF'
-사용법: bash tool/verify.sh [all|calendar|notifications|auth|settings|push-server]
+사용법: bash tool/verify.sh [all|calendar|notices|notifications|auth|settings|push-server]
 
 기본값 all: Dart 서식 확인, Flutter 정적 분석, 전체 Flutter 테스트
 기능 선택: 전체 Dart 서식 확인·정적 분석 후 해당 기능 테스트
@@ -27,6 +27,7 @@ case "$target" in
   -h|--help) usage; exit 0 ;;
   all) test_paths=(test) ;;
   calendar) test_paths=(test/features/calendar test/core/widgets/calendar_week_event_bars_test.dart) ;;
+  notices) test_paths=(test/features/notice_feed) ;;
   notifications) test_paths=(test/features/notification) ;;
   auth) test_paths=(test/features/auth) ;;
   settings) test_paths=(test/features/settings) ;;

@@ -12,6 +12,10 @@ class CalendarWeekEventBars extends StatelessWidget {
     this.minimumHeight = 0,
     this.headerHeight = 0,
     this.verticalOffset = 0,
+    this.categoryColor,
+    this.barHeight = 4,
+    this.laneHeight = 8,
+    this.maxVisibleLanes,
   });
 
   final List<DateTime?> dates;
@@ -21,6 +25,10 @@ class CalendarWeekEventBars extends StatelessWidget {
 
   /// 전체 높이는 유지하고 선의 위치만 조정한다. 음수이면 위로 이동한다.
   final double verticalOffset;
+  final Color Function(String category)? categoryColor;
+  final double barHeight;
+  final double laneHeight;
+  final int? maxVisibleLanes;
 
   @override
   Widget build(BuildContext context) {
@@ -66,7 +74,10 @@ class CalendarWeekEventBars extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final columnWidth = constraints.maxWidth / dates.length;
-          final barsHeight = lanes.length * 8.0;
+          final visibleCount = maxVisibleLanes == null
+              ? lanes.length
+              : lanes.length.clamp(0, maxVisibleLanes!);
+          final barsHeight = visibleCount * laneHeight;
           // 날짜와 점 아래 공간을 확보하면서 선 묶음을 주 영역 중앙에 둔다.
           final contentHeight = headerHeight * 2 + barsHeight;
           final height = contentHeight > minimumHeight
@@ -77,26 +88,48 @@ class CalendarWeekEventBars extends StatelessWidget {
             height: height,
             child: Stack(
               children: [
-                for (var lane = 0; lane < lanes.length; lane++)
+                for (var lane = 0; lane < visibleCount; lane++)
                   for (final segment in lanes[lane])
                     Positioned(
                       left: segment.first * columnWidth + 3,
-                      top: top + lane * 8 + 2,
+                      top: top + lane * laneHeight + 2,
                       width:
                           (segment.last - segment.first + 1) * columnWidth - 6,
-                      height: 4,
+                      height: barHeight,
                       child: Container(
                         key: ValueKey(
                           'calendar-bar:${segment.event.id}:${dates[segment.first]!.toIso8601String()}',
                         ),
                         decoration: BoxDecoration(
-                          color: AppColors.calendarCategory(
+                          color: (categoryColor ?? AppColors.calendarCategory)(
                             segment.event.category,
                           ),
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
                     ),
+                if (lanes.length > visibleCount)
+                  for (var column = 0; column < dates.length; column++)
+                    if (lanes
+                        .skip(visibleCount)
+                        .expand((lane) => lane)
+                        .any(
+                          (segment) =>
+                              column >= segment.first && column <= segment.last,
+                        ))
+                      Positioned(
+                        left: column * columnWidth,
+                        top: top + barsHeight + 2,
+                        width: columnWidth,
+                        child: Text(
+                          '+${lanes.skip(visibleCount).expand((lane) => lane).where((segment) => column >= segment.first && column <= segment.last).length}',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 9,
+                            color: AppColors.calendarStatus,
+                          ),
+                        ),
+                      ),
               ],
             ),
           );

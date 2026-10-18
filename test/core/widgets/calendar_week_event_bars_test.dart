@@ -20,6 +20,52 @@ CalendarEvent event(
 );
 
 void main() {
+  testWidgets('기간이 세 개 겹치면 두 막대와 숨은 일정 개수를 날짜별로 표시한다', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 350,
+            child: CalendarWeekEventBars(
+              dates: [
+                for (var day = 21; day <= 27; day++) DateTime(2026, 9, day),
+              ],
+              events: [
+                event(
+                  'a',
+                  DateTime.utc(2026, 9, 21),
+                  DateTime.utc(2026, 9, 25),
+                ),
+                event(
+                  'b',
+                  DateTime.utc(2026, 9, 22),
+                  DateTime.utc(2026, 9, 26),
+                ),
+                event(
+                  'c',
+                  DateTime.utc(2026, 9, 23),
+                  DateTime.utc(2026, 9, 27),
+                ),
+              ],
+              maxVisibleLanes: 2,
+              minimumHeight: 93,
+              laneHeight: 11,
+              barHeight: 6,
+            ),
+          ),
+        ),
+      ),
+    );
+    final bars = find.byWidgetPredicate(
+      (widget) =>
+          widget.key is ValueKey<String> &&
+          (widget.key! as ValueKey<String>).value.startsWith('calendar-bar:'),
+    );
+    expect(bars, findsNWidgets(2));
+    expect(find.text('+1'), findsNWidgets(4));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('겹치는 기간은 별도 선에 배치하고 단일 날짜는 선에서 제외한다', (tester) async {
     final events = [
       event('first', DateTime.utc(2026, 9, 21), DateTime.utc(2026, 9, 25)),

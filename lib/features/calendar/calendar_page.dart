@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/base_view.dart';
-import '../../core/widgets/month_calendar_grid.dart';
+import '../../core/layout/app_breakpoints.dart';
+import 'calendar_design.dart';
 import '../../core/widgets/calendar_week_event_bars.dart';
 import '../../core/widgets/notification_bell_button.dart';
 import 'calendar_controller.dart';
@@ -15,7 +16,8 @@ import 'calendar_event_dialog.dart';
 import 'calendar_event_draft.dart';
 
 class CalendarPage extends StatefulWidget {
-  const CalendarPage({super.key});
+  const CalendarPage({super.key, this.initialDate});
+  final DateTime? initialDate;
   @override
   State<CalendarPage> createState() => _CalendarPageState();
 }
@@ -26,7 +28,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
   String _categoryOf(CalendarEvent event) =>
       _categories.contains(event.category) ? event.category : '일정';
-  DateTime _selectedDate = DateTime.now();
+  late DateTime _selectedDate = widget.initialDate ?? DateTime.now();
   final Set<String> _selectedCategories = {..._categories};
   bool _addingEvent = false;
 
@@ -122,18 +124,19 @@ class _CalendarPageState extends State<CalendarPage> {
         )
         .toList();
     return BaseView(
+      backgroundColor: CalendarDesign.background,
       floatingActionButton: SizedBox(
-        width: 72,
-        height: 72,
+        width: AppBreakpoints.of(context) == ScreenSize.mobile ? 52 : 57,
+        height: AppBreakpoints.of(context) == ScreenSize.mobile ? 52 : 57,
         child: FloatingActionButton(
           heroTag: 'calendar-add-event',
           tooltip: '일정 추가',
-          backgroundColor: const Color(0xFF3778C2),
+          backgroundColor: CalendarDesign.brand,
           foregroundColor: Colors.white,
           shape: const CircleBorder(),
           elevation: 6,
           onPressed: () => _addEvent(controller),
-          child: const Icon(Icons.add, size: 32),
+          child: const CalendarDesignIcon('add'),
         ),
       ),
       mobileBuilder: (_) => _mobile(controller, dayEvents),
@@ -147,38 +150,36 @@ class _CalendarPageState extends State<CalendarPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('캘린더', style: AppTextStyles.heading1.copyWith(fontSize: 28)),
-            const SizedBox(height: 4),
+            Text(
+              '캘린더',
+              style: AppTextStyles.heading1.copyWith(
+                fontSize: 27,
+                color: CalendarDesign.text,
+                letterSpacing: -1,
+              ),
+            ),
+            const SizedBox(height: 10),
             const Text(
               '강의부터 나의 일정까지, 하루를 한눈에 확인해요.',
-              style: TextStyle(color: AppColors.textSecondary),
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.6,
+                color: CalendarDesign.muted,
+              ),
             ),
           ],
         ),
       ),
-      const NotificationBellButton(),
+      const NotificationBellButton(
+        backgroundColor: CalendarDesign.brand,
+        icon: CalendarDesignIcon('bell'),
+      ),
     ],
   );
 
-  Widget _toolbar(CalendarController controller) => Column(
+  Widget _loadingState(CalendarController controller) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Row(
-        children: [
-          TextButton.icon(
-            onPressed: () => _pickMonth(controller),
-            icon: const Icon(Icons.calendar_month_outlined),
-            label: Text('${controller.month.year}년 ${controller.month.month}월'),
-          ),
-          const Spacer(),
-          IconButton(
-            tooltip: '일정 새로고침',
-            onPressed: controller.refresh,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
-      _desktopFilters(),
       if (controller.appLoading || controller.googleLoading)
         const LinearProgressIndicator(),
       if (!controller.serverConnectionAvailable &&
@@ -189,52 +190,12 @@ class _CalendarPageState extends State<CalendarPage> {
     ],
   );
 
-  Widget _grid(CalendarController controller) => Container(
-    key: const ValueKey('calendar-month-card'),
-    width: double.infinity,
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: const Color(0xFFE5E7EB)),
-    ),
-    child: Column(
-      children: [
-        Row(
-          children: [
-            for (final name in _weekdayNames)
-              Expanded(child: Center(child: Text(name))),
-          ],
-        ),
-        const SizedBox(height: 8),
-        MonthCalendarGrid(
-          month: controller.month,
-          showNextMonthDays: true,
-          eventDays: controller.eventDays,
-          events: controller.events
-              .where(
-                (event) =>
-                    _selectedCategories.length == _categories.length ||
-                    _selectedCategories.contains(_categoryOf(event)),
-              )
-              .toList(),
-          selectedDay: _selectedDate.day,
-          onDaySelected: (day) => _selectDate(
-            controller,
-            DateTime(controller.month.year, controller.month.month, day),
-          ),
-        ),
-        const SizedBox(height: 16),
-        _legends(),
-      ],
-    ),
-  );
-
   Widget _dayList(List<CalendarEvent> dayEvents) {
     final todoCount = dayEvents.where((event) => event.category == '할일').length;
     final scheduleCount = dayEvents.length - todoCount;
     final pendingEvents = CalendarScope.of(context).events.where((event) {
-      if (event.isCompleted ||
+      if (!_selectedCategories.contains(_categoryOf(event)) ||
+          event.isCompleted ||
           !const ['강의', '과제', '할일'].contains(event.category)) {
         return false;
       }
@@ -243,7 +204,7 @@ class _CalendarPageState extends State<CalendarPage> {
         (offset) => DateTime(
           _selectedDate.year,
           _selectedDate.month,
-          _selectedDate.day + offset,
+          _selectedDate.day + offset + 1,
         ),
       ).any(event.occursOn);
     }).toList();
@@ -252,20 +213,24 @@ class _CalendarPageState extends State<CalendarPage> {
       children: [
         Text(
           '${_selectedDate.month}월 ${_selectedDate.day}일 ${_weekdayNames[_selectedDate.weekday - 1]}요일',
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
           child: Text(
             dayEvents.isEmpty
                 ? '여유로운 하루를 계획해보세요.'
-                : '$scheduleCount개의 일정과 $todoCount개의 할 일',
+                : '${scheduleCount + todoCount}개의 일정과 할일',
             style: const TextStyle(color: AppColors.textSecondary),
           ),
         ),
         if (dayEvents.isEmpty) ...[
           const SizedBox(height: 12),
-          const _CalendarEmptyState(),
+          _CalendarEmptyState(
+            category: _selectedCategories.length == 1
+                ? _selectedCategories.single
+                : '일정',
+          ),
         ],
         for (final event in dayEvents)
           Padding(
@@ -280,7 +245,7 @@ class _CalendarPageState extends State<CalendarPage> {
               ),
             ),
           ),
-        if (dayEvents.isEmpty) ...[
+        ...[
           const SizedBox(height: 24),
           const Divider(height: 1, color: Color(0xFFE5EAF0)),
           const SizedBox(height: 24),
@@ -331,15 +296,16 @@ class _CalendarPageState extends State<CalendarPage> {
 
   Widget _mobile(CalendarController controller, List<CalendarEvent> events) =>
       SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+        padding: const EdgeInsets.fromLTRB(20, 32, 20, 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _header(),
             const SizedBox(height: 20),
-            _toolbar(controller),
+            _desktopFilters(),
+            _loadingState(controller),
             const SizedBox(height: 16),
-            _grid(controller),
+            _desktopGrid(controller),
             const SizedBox(height: 20),
             _dayList(events),
           ],
@@ -380,13 +346,12 @@ class _CalendarPageState extends State<CalendarPage> {
         surfaceTintColor: Colors.transparent,
         onPressed: onTap,
         label: Text(label),
-        backgroundColor: selected
-            ? (label == '전체'
-                  ? const Color(0xFF3778C2)
-                  : AppColors.calendarCategory(label))
-            : Colors.white,
+        backgroundColor: selected ? CalendarDesign.brand : Colors.white,
+        labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+        visualDensity: VisualDensity.compact,
         labelStyle: TextStyle(
-          color: selected ? Colors.white : AppColors.textPrimary,
+          color: selected ? Colors.white : CalendarDesign.text,
+          fontSize: 12,
           fontWeight: FontWeight.w600,
         ),
         side: BorderSide(
@@ -404,10 +369,10 @@ class _CalendarPageState extends State<CalendarPage> {
           spacing: 4,
           runSpacing: 8,
           children: [
-            _CalendarLegend('강의', AppColors.calendarCategory('강의')),
-            _CalendarLegend('과제', AppColors.calendarCategory('과제')),
-            _CalendarLegend('일정', AppColors.calendarCategory('일정')),
-            _CalendarLegend('할일', AppColors.calendarCategory('할일')),
+            _CalendarLegend('강의', CalendarDesign.category('강의')),
+            _CalendarLegend('과제', CalendarDesign.category('과제')),
+            _CalendarLegend('일정', CalendarDesign.category('일정')),
+            _CalendarLegend('할일', CalendarDesign.category('할일')),
           ],
         ),
         SizedBox(height: 8),
@@ -428,49 +393,96 @@ class _CalendarPageState extends State<CalendarPage> {
     final firstWeekday = DateTime(month.year, month.month).weekday;
     final days = DateTime(month.year, month.month + 1, 0).day;
     final rows = ((firstWeekday - 1 + days + 6) / 7).floor();
-    final cellHeight = MediaQuery.sizeOf(context).width >= 1200 ? 102.0 : 44.0;
+    final mobile = AppBreakpoints.of(context) == ScreenSize.mobile;
+    final cellHeight = mobile ? 93.0 : 97.0;
     final visibleEvents = controller.events
         .where((event) => _selectedCategories.contains(_categoryOf(event)))
         .toList();
     return Container(
       key: const ValueKey('calendar-month-card'),
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+      padding: EdgeInsets.fromLTRB(
+        mobile ? 13 : 24,
+        mobile ? 20 : 26,
+        mobile ? 13 : 24,
+        19,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE7EBF0)),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: CalendarDesign.border),
       ),
       child: Column(
         children: [
           Row(
             children: [
-              Text(
-                '${month.year}년 ${month.month}월',
-                style: const TextStyle(
-                  fontSize: 19,
-                  fontWeight: FontWeight.bold,
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    '${month.year}년 ${month.month}월',
+                    style: TextStyle(
+                      fontSize: mobile ? 17 : 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               IconButton(
+                style: IconButton.styleFrom(
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  minimumSize: Size.zero,
+                ),
+                constraints: const BoxConstraints.tightFor(
+                  width: 32,
+                  height: 36,
+                ),
+                padding: EdgeInsets.zero,
                 tooltip: '이전 달',
-                icon: const Icon(Icons.chevron_left),
+                icon: const CalendarDesignIcon('previous'),
                 onPressed: () =>
                     controller.setMonth(DateTime(month.year, month.month - 1)),
               ),
               IconButton(
+                style: IconButton.styleFrom(
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  minimumSize: Size.zero,
+                ),
+                constraints: const BoxConstraints.tightFor(
+                  width: 32,
+                  height: 36,
+                ),
+                padding: EdgeInsets.zero,
                 tooltip: '다음 달',
-                icon: const Icon(Icons.chevron_right),
+                icon: const CalendarDesignIcon('next'),
                 onPressed: () =>
                     controller.setMonth(DateTime(month.year, month.month + 1)),
               ),
               IconButton(
+                style: IconButton.styleFrom(
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  minimumSize: Size.zero,
+                ),
+                constraints: const BoxConstraints.tightFor(
+                  width: 36,
+                  height: 36,
+                ),
+                padding: EdgeInsets.zero,
                 tooltip: '월 선택',
-                icon: const Icon(Icons.calendar_month_outlined),
+                icon: const CalendarDesignIcon('date'),
                 onPressed: () => _pickMonth(controller),
               ),
               const Spacer(),
               IconButton(
+                style: IconButton.styleFrom(
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  minimumSize: Size.zero,
+                ),
+                constraints: const BoxConstraints.tightFor(
+                  width: 32,
+                  height: 36,
+                ),
+                padding: EdgeInsets.zero,
                 tooltip: '일정 새로고침',
                 icon: const Icon(Icons.refresh),
                 onPressed: controller.refresh,
@@ -515,18 +527,20 @@ class _CalendarPageState extends State<CalendarPage> {
                 CalendarWeekEventBars(
                   dates: [
                     for (var column = 0; column < 7; column++)
-                      row * 7 + column - firstWeekday + 2 < 1
-                          ? null
-                          : DateTime(
-                              month.year,
-                              month.month,
-                              row * 7 + column - firstWeekday + 2,
-                            ),
+                      DateTime(
+                        month.year,
+                        month.month,
+                        row * 7 + column - firstWeekday + 2,
+                      ),
                   ],
                   events: visibleEvents,
                   minimumHeight: cellHeight,
-                  headerHeight: cellHeight > 50 ? 56 : 40,
-                  verticalOffset: cellHeight > 50 ? 10 : -2,
+                  headerHeight: 0,
+                  verticalOffset: 8,
+                  categoryColor: CalendarDesign.category,
+                  barHeight: 6,
+                  laneHeight: 11,
+                  maxVisibleLanes: 2,
                 ),
               ],
             ),
@@ -543,8 +557,7 @@ class _CalendarPageState extends State<CalendarPage> {
     int days,
     double cellHeight,
   ) {
-    if (day < 1) return SizedBox(height: cellHeight);
-    final outsideMonth = day > days;
+    final outsideMonth = day < 1 || day > days;
     final date = DateTime(controller.month.year, controller.month.month, day);
     final events = controller.events
         .where(
@@ -559,10 +572,11 @@ class _CalendarPageState extends State<CalendarPage> {
         _selectedDate.month == date.month &&
         _selectedDate.day == date.day;
     return InkWell(
+      key: ValueKey('calendar-day:${date.year}-${date.month}-${date.day}'),
       onTap: () => _selectDate(controller, date),
       child: Container(
         height: cellHeight,
-        padding: EdgeInsets.fromLTRB(3, cellHeight > 50 ? 8 : 4, 3, 0),
+        padding: const EdgeInsets.fromLTRB(3, 8, 3, 0),
         decoration: const BoxDecoration(
           border: Border(top: BorderSide(color: Color(0xFFF0F2F5))),
         ),
@@ -574,9 +588,7 @@ class _CalendarPageState extends State<CalendarPage> {
                 height: 26,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: selected
-                      ? const Color(0xFF3778C2)
-                      : Colors.transparent,
+                  color: selected ? CalendarDesign.brand : Colors.transparent,
                   shape: BoxShape.circle,
                 ),
                 child: Text(
@@ -605,10 +617,10 @@ class _CalendarPageState extends State<CalendarPage> {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: event.isCompleted
-                          ? AppColors.calendarCategory(event.category)
+                          ? CalendarDesign.category(event.category)
                           : Colors.transparent,
                       border: Border.all(
-                        color: AppColors.calendarCategory(event.category),
+                        color: CalendarDesign.category(event.category),
                       ),
                     ),
                   ),
@@ -630,24 +642,20 @@ class _CalendarPageState extends State<CalendarPage> {
 
   Widget _desktop(CalendarController controller, List<CalendarEvent> events) =>
       SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(40, 32, 40, 32),
+        padding: const EdgeInsets.fromLTRB(40, 46, 40, 40),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _header(),
-            const SizedBox(height: 24),
-            if (MediaQuery.sizeOf(context).width >= 1200)
-              _desktopFilters()
-            else
-              _toolbar(controller),
-            if (controller.appLoading || controller.googleLoading)
-              const LinearProgressIndicator(),
-            const SizedBox(height: 16),
+            const SizedBox(height: 25),
+            _desktopFilters(),
+            _loadingState(controller),
+            const SizedBox(height: 25),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(flex: 3, child: _desktopGrid(controller)),
-                const SizedBox(width: 20),
+                const SizedBox(width: 25),
                 Expanded(flex: 2, child: _dayList(events)),
               ],
             ),
@@ -657,7 +665,8 @@ class _CalendarPageState extends State<CalendarPage> {
 }
 
 class _CalendarEmptyState extends StatelessWidget {
-  const _CalendarEmptyState();
+  const _CalendarEmptyState({required this.category});
+  final String category;
 
   @override
   Widget build(BuildContext context) => CustomPaint(
@@ -665,26 +674,22 @@ class _CalendarEmptyState extends StatelessWidget {
     child: Container(
       key: const ValueKey('calendar-empty-state'),
       width: double.infinity,
-      constraints: const BoxConstraints(minHeight: 240),
+      constraints: const BoxConstraints(minHeight: 180),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
       decoration: BoxDecoration(
         color: AppColors.background,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
-            Icons.calendar_today_outlined,
-            size: 40,
-            color: Color(0xFFB5C3D9),
-          ),
-          const SizedBox(height: 28),
+          const CalendarDesignIcon('empty'),
+          const SizedBox(height: 20),
           Text(
-            '표시할 일정이 없어요.',
+            '표시할 $category${const ['일정', '할일'].contains(category) ? '이' : '가'} 없어요.',
             textAlign: TextAlign.center,
             style: AppTextStyles.body.copyWith(
-              fontSize: 18,
+              fontSize: 13,
               color: AppColors.calendarStatus,
             ),
           ),
@@ -692,7 +697,10 @@ class _CalendarEmptyState extends StatelessWidget {
           Text(
             '오른쪽 아래 + 버튼으로 일정이나 할일을 추가해보세요.',
             textAlign: TextAlign.center,
-            style: AppTextStyles.body.copyWith(color: AppColors.calendarStatus),
+            style: AppTextStyles.body.copyWith(
+              fontSize: 11,
+              color: AppColors.calendarStatus,
+            ),
           ),
         ],
       ),
@@ -855,7 +863,7 @@ class _CalendarEventCard extends StatelessWidget {
       now: DateTime.now(),
     );
     if (event.category == '할일') return _todoCard(presentation);
-    final color = AppColors.calendarCategory(event.category);
+    final color = CalendarDesign.category(event.category);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
@@ -907,7 +915,7 @@ class _CalendarEventCard extends StatelessWidget {
   }
 
   Widget _todoCard(CalendarEventPresentation presentation) {
-    final color = AppColors.calendarCategory(event.category);
+    final color = CalendarDesign.category(event.category);
     Widget badge(String label) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
@@ -971,7 +979,7 @@ class _CalendarEventCard extends StatelessWidget {
   Widget _footer(CalendarEventPresentation presentation) {
     final statusColor = presentation.isOverdue
         ? AppColors.error
-        : AppColors.calendarCategory(event.category);
+        : CalendarDesign.category(event.category);
     return Row(
       children: [
         Expanded(
