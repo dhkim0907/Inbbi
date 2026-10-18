@@ -4,10 +4,15 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/base_view.dart';
 import '../../core/widgets/month_calendar_grid.dart';
+import '../../core/widgets/calendar_week_event_bars.dart';
 import '../../core/widgets/notification_bell_button.dart';
 import 'calendar_controller.dart';
 import 'calendar_event.dart';
+import 'calendar_event_details_dialog.dart';
+import 'calendar_event_presentation.dart';
 import 'calendar_scope.dart';
+import 'calendar_event_dialog.dart';
+import 'calendar_event_draft.dart';
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({super.key});
@@ -17,17 +22,76 @@ class CalendarPage extends StatefulWidget {
 
 class _CalendarPageState extends State<CalendarPage> {
   static const _weekdayNames = ['월', '화', '수', '목', '금', '토', '일'];
-  static const _categories = ['전체', '과제', '강의', '공지', '기타', 'Google'];
+  static const _categories = ['강의', '과제', '일정', '할일'];
+
+  String _categoryOf(CalendarEvent event) =>
+      _categories.contains(event.category) ? event.category : '일정';
   DateTime _selectedDate = DateTime.now();
-  String _selectedCategory = '전체';
+  final Set<String> _selectedCategories = {..._categories};
+  bool _addingEvent = false;
+
+  Future<void> _addEvent(CalendarController controller) async {
+    if (_addingEvent) return;
+    _addingEvent = true;
+    try {
+      final draft = await showDialog<CalendarEventDraft>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => CalendarEventDialog(
+          initialDate: _selectedDate,
+          onSave: (draft) async {
+            await controller.createEvent(draft);
+          },
+        ),
+      );
+      if (draft == null || !mounted) return;
+      _selectDate(controller, draft.start);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('일정을 저장했어요.')));
+    } finally {
+      _addingEvent = false;
+    }
+  }
+
+  Future<void> _showEventDetails(CalendarEvent event) => showDialog<void>(
+    context: context,
+    builder: (_) => CalendarEventDetailsDialog(
+      event: event,
+      onEdit: (current) async {
+        CalendarEvent? updated;
+        final controller = CalendarScope.of(context);
+        final draft = await showDialog<CalendarEventDraft>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => CalendarEventDialog(
+            initialDate: current.start,
+            initialEvent: current,
+            onSave: (draft) async {
+              updated = await controller.updateEvent(current, draft);
+            },
+          ),
+        );
+        if (draft == null || !mounted) return null;
+        _selectDate(controller, updated!.start);
+        return updated;
+      },
+      onDelete: (current) => CalendarScope.of(context).deleteEvent(current),
+    ),
+  );
+
+  void _selectDate(CalendarController controller, DateTime date) {
+    setState(() => _selectedDate = date);
+    if (date.year != controller.month.year ||
+        date.month != controller.month.month) {
+      controller.setMonth(date);
+    }
+  }
 
   Future<void> _pickMonth(CalendarController controller) async {
-    final picked = await showDatePicker(
+    final picked = await showDialog<DateTime>(
       context: context,
-      initialDate: controller.month,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-      helpText: '표시할 월 선택',
+      builder: (_) => _MonthPickerDialog(initialMonth: controller.month),
     );
     if (picked == null || !mounted) return;
     final maxDay = DateTime(picked.year, picked.month + 1, 0).day;
@@ -53,11 +117,25 @@ class _CalendarPageState extends State<CalendarPage> {
         .where(
           (event) =>
               event.occursOn(_selectedDate) &&
-              (_selectedCategory == '전체' ||
-                  event.category == _selectedCategory),
+              (_selectedCategories.length == _categories.length ||
+                  _selectedCategories.contains(_categoryOf(event))),
         )
         .toList();
     return BaseView(
+      floatingActionButton: SizedBox(
+        width: 72,
+        height: 72,
+        child: FloatingActionButton(
+          heroTag: 'calendar-add-event',
+          tooltip: '일정 추가',
+          backgroundColor: const Color(0xFF3778C2),
+          foregroundColor: Colors.white,
+          shape: const CircleBorder(),
+          elevation: 6,
+          onPressed: () => _addEvent(controller),
+          child: const Icon(Icons.add, size: 32),
+        ),
+      ),
       mobileBuilder: (_) => _mobile(controller, dayEvents),
       desktopBuilder: (_) => _desktop(controller, dayEvents),
     );
@@ -72,7 +150,7 @@ class _CalendarPageState extends State<CalendarPage> {
             Text('캘린더', style: AppTextStyles.heading1.copyWith(fontSize: 28)),
             const SizedBox(height: 4),
             const Text(
-              '서버 일정과 연결한 Google 일정을 확인해요.',
+              '강의부터 나의 일정까지, 하루를 한눈에 확인해요.',
               style: TextStyle(color: AppColors.textSecondary),
             ),
           ],
@@ -100,18 +178,7 @@ class _CalendarPageState extends State<CalendarPage> {
           ),
         ],
       ),
-      Wrap(
-        spacing: 8,
-        runSpacing: 4,
-        children: [
-          for (final category in _categories)
-            ChoiceChip(
-              label: Text(category),
-              selected: _selectedCategory == category,
-              onSelected: (_) => setState(() => _selectedCategory = category),
-            ),
-        ],
-      ),
+      _desktopFilters(),
       if (controller.appLoading || controller.googleLoading)
         const LinearProgressIndicator(),
       if (!controller.serverConnectionAvailable &&
@@ -142,44 +209,125 @@ class _CalendarPageState extends State<CalendarPage> {
         const SizedBox(height: 8),
         MonthCalendarGrid(
           month: controller.month,
+          showNextMonthDays: true,
           eventDays: controller.eventDays,
+          events: controller.events
+              .where(
+                (event) =>
+                    _selectedCategories.length == _categories.length ||
+                    _selectedCategories.contains(_categoryOf(event)),
+              )
+              .toList(),
           selectedDay: _selectedDate.day,
-          onDaySelected: (day) => setState(
-            () => _selectedDate = DateTime(
-              controller.month.year,
-              controller.month.month,
-              day,
-            ),
+          onDaySelected: (day) => _selectDate(
+            controller,
+            DateTime(controller.month.year, controller.month.month, day),
           ),
         ),
+        const SizedBox(height: 16),
+        _legends(),
       ],
     ),
   );
 
-  Widget _dayList(List<CalendarEvent> dayEvents) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        '${_selectedDate.month}월 ${_selectedDate.day}일 ${_weekdayNames[_selectedDate.weekday - 1]}요일',
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-      ),
-      const SizedBox(height: 12),
-      if (dayEvents.isEmpty)
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 12),
+  Widget _dayList(List<CalendarEvent> dayEvents) {
+    final todoCount = dayEvents.where((event) => event.category == '할일').length;
+    final scheduleCount = dayEvents.length - todoCount;
+    final pendingEvents = CalendarScope.of(context).events.where((event) {
+      if (event.isCompleted ||
+          !const ['강의', '과제', '할일'].contains(event.category)) {
+        return false;
+      }
+      return List.generate(
+        7,
+        (offset) => DateTime(
+          _selectedDate.year,
+          _selectedDate.month,
+          _selectedDate.day + offset,
+        ),
+      ).any(event.occursOn);
+    }).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${_selectedDate.month}월 ${_selectedDate.day}일 ${_weekdayNames[_selectedDate.weekday - 1]}요일',
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
           child: Text(
-            '표시할 일정이 없어요.',
-            style: TextStyle(color: AppColors.textSecondary),
+            dayEvents.isEmpty
+                ? '여유로운 하루를 계획해보세요.'
+                : '$scheduleCount개의 일정과 $todoCount개의 할 일',
+            style: const TextStyle(color: AppColors.textSecondary),
           ),
-        )
-      else
+        ),
+        if (dayEvents.isEmpty) ...[
+          const SizedBox(height: 12),
+          const _CalendarEmptyState(),
+        ],
         for (final event in dayEvents)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: _CalendarEventCard(event: event),
+            child: Semantics(
+              button: true,
+              label: '${event.title} 상세보기',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () => _showEventDetails(event),
+                child: _CalendarEventCard(event: event),
+              ),
+            ),
           ),
-    ],
-  );
+        if (dayEvents.isEmpty) ...[
+          const SizedBox(height: 24),
+          const Divider(height: 1, color: Color(0xFFE5EAF0)),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              const Expanded(
+                child: Text('미완료 강의·과제·할일', style: AppTextStyles.heading2),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${pendingEvents.length}개',
+                style: AppTextStyles.body.copyWith(
+                  color: AppColors.calendarStatus,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '선택한 날짜 이후 7일 · 완료하지 않은 항목만 표시해요.',
+            style: AppTextStyles.body.copyWith(color: AppColors.calendarStatus),
+          ),
+          const SizedBox(height: 32),
+          if (pendingEvents.isEmpty)
+            Text(
+              '해당 기간에 미완료 항목이 없어요.',
+              style: AppTextStyles.body.copyWith(
+                color: AppColors.calendarStatus,
+              ),
+            ),
+          for (final event in pendingEvents)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Semantics(
+                button: true,
+                label: '${event.title} 상세보기',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => _showEventDetails(event),
+                  child: _CalendarEventCard(event: event),
+                ),
+              ),
+            ),
+        ],
+      ],
+    );
+  }
 
   Widget _mobile(CalendarController controller, List<CalendarEvent> events) =>
       SingleChildScrollView(
@@ -198,21 +346,308 @@ class _CalendarPageState extends State<CalendarPage> {
         ),
       );
 
+  Widget _desktopFilters() => Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: [
+      _filterPill(
+        '전체',
+        _selectedCategories.length == _categories.length,
+        () => setState(
+          () => _selectedCategories
+            ..clear()
+            ..addAll(_categories),
+        ),
+      ),
+      for (final category in _categories)
+        _filterPill(
+          category,
+          _selectedCategories.length == 1 &&
+              _selectedCategories.contains(category),
+          () => setState(
+            () => _selectedCategories
+              ..clear()
+              ..add(category),
+          ),
+        ),
+    ],
+  );
+
+  Widget _filterPill(String label, bool selected, VoidCallback onTap) =>
+      ActionChip(
+        // 선택 상태가 바뀌면 Material 색상 보간 없이 즉시 다시 그린다.
+        key: ValueKey('calendar-filter-$label-$selected'),
+        surfaceTintColor: Colors.transparent,
+        onPressed: onTap,
+        label: Text(label),
+        backgroundColor: selected
+            ? (label == '전체'
+                  ? const Color(0xFF3778C2)
+                  : AppColors.calendarCategory(label))
+            : Colors.white,
+        labelStyle: TextStyle(
+          color: selected ? Colors.white : AppColors.textPrimary,
+          fontWeight: FontWeight.w600,
+        ),
+        side: BorderSide(
+          color: selected ? Colors.transparent : const Color(0xFFE5EAF0),
+        ),
+        shape: const StadiumBorder(),
+      );
+
+  Widget _legends() => SizedBox(
+    width: double.infinity,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 4,
+          runSpacing: 8,
+          children: [
+            _CalendarLegend('강의', AppColors.calendarCategory('강의')),
+            _CalendarLegend('과제', AppColors.calendarCategory('과제')),
+            _CalendarLegend('일정', AppColors.calendarCategory('일정')),
+            _CalendarLegend('할일', AppColors.calendarCategory('할일')),
+          ],
+        ),
+        SizedBox(height: 8),
+        Wrap(
+          spacing: 4,
+          runSpacing: 8,
+          children: [
+            _CalendarLegend('미완료', AppColors.calendarStatus, outlined: true),
+            _CalendarLegend('완료', AppColors.calendarStatus),
+          ],
+        ),
+      ],
+    ),
+  );
+
+  Widget _desktopGrid(CalendarController controller) {
+    final month = controller.month;
+    final firstWeekday = DateTime(month.year, month.month).weekday;
+    final days = DateTime(month.year, month.month + 1, 0).day;
+    final rows = ((firstWeekday - 1 + days + 6) / 7).floor();
+    final cellHeight = MediaQuery.sizeOf(context).width >= 1200 ? 102.0 : 44.0;
+    final visibleEvents = controller.events
+        .where((event) => _selectedCategories.contains(_categoryOf(event)))
+        .toList();
+    return Container(
+      key: const ValueKey('calendar-month-card'),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE7EBF0)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Text(
+                '${month.year}년 ${month.month}월',
+                style: const TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: '이전 달',
+                icon: const Icon(Icons.chevron_left),
+                onPressed: () =>
+                    controller.setMonth(DateTime(month.year, month.month - 1)),
+              ),
+              IconButton(
+                tooltip: '다음 달',
+                icon: const Icon(Icons.chevron_right),
+                onPressed: () =>
+                    controller.setMonth(DateTime(month.year, month.month + 1)),
+              ),
+              IconButton(
+                tooltip: '월 선택',
+                icon: const Icon(Icons.calendar_month_outlined),
+                onPressed: () => _pickMonth(controller),
+              ),
+              const Spacer(),
+              IconButton(
+                tooltip: '일정 새로고침',
+                icon: const Icon(Icons.refresh),
+                onPressed: controller.refresh,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              for (final name in _weekdayNames)
+                Expanded(
+                  child: Center(
+                    child: Text(
+                      name,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          for (var row = 0; row < rows; row++)
+            Stack(
+              alignment: Alignment.topCenter,
+              children: [
+                Row(
+                  children: [
+                    for (var column = 0; column < 7; column++)
+                      Expanded(
+                        child: _desktopDayCell(
+                          controller,
+                          row * 7 + column - firstWeekday + 2,
+                          days,
+                          cellHeight,
+                        ),
+                      ),
+                  ],
+                ),
+                CalendarWeekEventBars(
+                  dates: [
+                    for (var column = 0; column < 7; column++)
+                      row * 7 + column - firstWeekday + 2 < 1
+                          ? null
+                          : DateTime(
+                              month.year,
+                              month.month,
+                              row * 7 + column - firstWeekday + 2,
+                            ),
+                  ],
+                  events: visibleEvents,
+                  minimumHeight: cellHeight,
+                  headerHeight: cellHeight > 50 ? 56 : 40,
+                  verticalOffset: cellHeight > 50 ? 10 : -2,
+                ),
+              ],
+            ),
+          const Divider(height: 28),
+          _legends(),
+        ],
+      ),
+    );
+  }
+
+  Widget _desktopDayCell(
+    CalendarController controller,
+    int day,
+    int days,
+    double cellHeight,
+  ) {
+    if (day < 1) return SizedBox(height: cellHeight);
+    final outsideMonth = day > days;
+    final date = DateTime(controller.month.year, controller.month.month, day);
+    final events = controller.events
+        .where(
+          (event) =>
+              event.occursOn(date) &&
+              (_selectedCategories.length == _categories.length ||
+                  _selectedCategories.contains(_categoryOf(event))),
+        )
+        .toList();
+    final selected =
+        _selectedDate.year == date.year &&
+        _selectedDate.month == date.month &&
+        _selectedDate.day == date.day;
+    return InkWell(
+      onTap: () => _selectDate(controller, date),
+      child: Container(
+        height: cellHeight,
+        padding: EdgeInsets.fromLTRB(3, cellHeight > 50 ? 8 : 4, 3, 0),
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: Color(0xFFF0F2F5))),
+        ),
+        child: Column(
+          children: [
+            Center(
+              child: Container(
+                width: 26,
+                height: 26,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? const Color(0xFF3778C2)
+                      : Colors.transparent,
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  '${date.day}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                    color: selected
+                        ? Colors.white
+                        : outsideMonth
+                        ? AppColors.calendarStatus.withValues(alpha: 0.6)
+                        : AppColors.textPrimary,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (final event in events.take(4))
+                  Container(
+                    width: 6,
+                    height: 6,
+                    margin: const EdgeInsets.symmetric(horizontal: 1),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: event.isCompleted
+                          ? AppColors.calendarCategory(event.category)
+                          : Colors.transparent,
+                      border: Border.all(
+                        color: AppColors.calendarCategory(event.category),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            if (cellHeight > 50 && events.length > 4)
+              Text(
+                '+${events.length - 4}',
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _desktop(CalendarController controller, List<CalendarEvent> events) =>
       SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(40, 32, 40, 24),
+        padding: const EdgeInsets.fromLTRB(40, 32, 40, 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _header(),
             const SizedBox(height: 24),
-            _toolbar(controller),
-            const SizedBox(height: 20),
+            if (MediaQuery.sizeOf(context).width >= 1200)
+              _desktopFilters()
+            else
+              _toolbar(controller),
+            if (controller.appLoading || controller.googleLoading)
+              const LinearProgressIndicator(),
+            const SizedBox(height: 16),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(flex: 3, child: _grid(controller)),
-                const SizedBox(width: 24),
+                Expanded(flex: 3, child: _desktopGrid(controller)),
+                const SizedBox(width: 20),
                 Expanded(flex: 2, child: _dayList(events)),
               ],
             ),
@@ -221,25 +656,383 @@ class _CalendarPageState extends State<CalendarPage> {
       );
 }
 
+class _CalendarEmptyState extends StatelessWidget {
+  const _CalendarEmptyState();
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+    foregroundPainter: const _EmptyStateBorderPainter(),
+    child: Container(
+      key: const ValueKey('calendar-empty-state'),
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 240),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.calendar_today_outlined,
+            size: 40,
+            color: Color(0xFFB5C3D9),
+          ),
+          const SizedBox(height: 28),
+          Text(
+            '표시할 일정이 없어요.',
+            textAlign: TextAlign.center,
+            style: AppTextStyles.body.copyWith(
+              fontSize: 18,
+              color: AppColors.calendarStatus,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '오른쪽 아래 + 버튼으로 일정이나 할일을 추가해보세요.',
+            textAlign: TextAlign.center,
+            style: AppTextStyles.body.copyWith(color: AppColors.calendarStatus),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _EmptyStateBorderPainter extends CustomPainter {
+  const _EmptyStateBorderPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFFDCE4F0)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    final path = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          (Offset.zero & size).deflate(0.75),
+          const Radius.circular(24),
+        ),
+      );
+    for (final metric in path.computeMetrics()) {
+      for (var offset = 0.0; offset < metric.length; offset += 7) {
+        canvas.drawPath(metric.extractPath(offset, offset + 4), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _EmptyStateBorderPainter oldDelegate) => false;
+}
+
+class _MonthPickerDialog extends StatefulWidget {
+  const _MonthPickerDialog({required this.initialMonth});
+
+  final DateTime initialMonth;
+
+  @override
+  State<_MonthPickerDialog> createState() => _MonthPickerDialogState();
+}
+
+class _MonthPickerDialogState extends State<_MonthPickerDialog> {
+  late int year = widget.initialMonth.year;
+  late int month = widget.initialMonth.month;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AppColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('표시할 월 선택', style: AppTextStyles.heading2),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  IconButton(
+                    tooltip: '이전 연도',
+                    onPressed: year > 2000
+                        ? () => setState(() => year--)
+                        : null,
+                    icon: const Icon(Icons.chevron_left),
+                  ),
+                  Expanded(
+                    child: Text(
+                      '$year년',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '다음 연도',
+                    onPressed: year < 2100
+                        ? () => setState(() => year++)
+                        : null,
+                    icon: const Icon(Icons.chevron_right),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 4,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  childAspectRatio: 1.5,
+                ),
+                itemCount: 12,
+                itemBuilder: (context, index) {
+                  final value = index + 1;
+                  final selected = month == value;
+                  return OutlinedButton(
+                    onPressed: () => setState(() => month = value),
+                    style: OutlinedButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      backgroundColor: selected
+                          ? const Color(0xFF3778C2)
+                          : Colors.white,
+                      foregroundColor: selected
+                          ? Colors.white
+                          : AppColors.textPrimary,
+                      side: BorderSide(
+                        color: selected
+                            ? const Color(0xFF3778C2)
+                            : const Color(0xFFE5EAF0),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: Text('$value월'),
+                  );
+                },
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('취소'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: () =>
+                        Navigator.pop(context, DateTime(year, month)),
+                    child: const Text('적용'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _CalendarEventCard extends StatelessWidget {
   const _CalendarEventCard({required this.event});
   final CalendarEvent event;
 
   @override
   Widget build(BuildContext context) {
-    final time = event.start.toLocal();
-    final timeLabel = event.allDay
-        ? '종일'
-        : '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-    return Card(
-      margin: EdgeInsets.zero,
-      color: AppColors.surface,
-      child: ListTile(
-        title: Text(event.title),
-        subtitle: Text(
-          '$timeLabel · ${event.category} · ${event.source == CalendarSource.google ? 'Google 읽기 전용' : '앱 서버'}',
-        ),
+    final presentation = CalendarEventPresentation(
+      event: event,
+      now: DateTime.now(),
+    );
+    if (event.category == '할일') return _todoCard(presentation);
+    final color = AppColors.calendarCategory(event.category);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE7EBF0)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(width: 3, height: 58, color: color),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    event.category,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  event.title,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 5),
+                _footer(presentation),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
+
+  Widget _todoCard(CalendarEventPresentation presentation) {
+    final color = AppColors.calendarCategory(event.category);
+    Widget badge(String label) => Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          color: color,
+        ),
+      ),
+    );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE7EBF0)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: event.isCompleted ? color : Colors.transparent,
+                shape: BoxShape.circle,
+                border: Border.all(color: color, width: 1.3),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                badge('할일'),
+                const SizedBox(height: 8),
+                Text(
+                  event.title,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 5),
+                _footer(presentation),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _footer(CalendarEventPresentation presentation) {
+    final statusColor = presentation.isOverdue
+        ? AppColors.error
+        : AppColors.calendarCategory(event.category);
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            presentation.timeLabel,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.calendarStatus,
+            ),
+          ),
+        ),
+        if (presentation.hasDeadline) ...[
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7),
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              presentation.statusLabel,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: statusColor,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _CalendarLegend extends StatelessWidget {
+  const _CalendarLegend(this.label, this.color, {this.outlined = false});
+  final String label;
+  final Color color;
+  final bool outlined;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(right: 12),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: outlined ? Colors.transparent : color,
+            shape: BoxShape.circle,
+            border: Border.all(color: color),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+        ),
+      ],
+    ),
+  );
 }

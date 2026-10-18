@@ -17,6 +17,8 @@ import 'core/theme/app_theme.dart';
 import 'core/widgets/main_tab_shell.dart';
 import 'features/splash/splash_page.dart';
 import 'features/auth/login_page.dart';
+import 'features/auth/auth_scope.dart';
+import 'features/auth/auth_session_service.dart';
 import 'features/calendar/app_calendar_api.dart';
 import 'features/calendar/calendar_controller.dart';
 import 'features/calendar/calendar_scope.dart';
@@ -24,6 +26,7 @@ import 'features/calendar/google_calendar_api.dart';
 import 'features/calendar/google_calendar_auth.dart';
 import 'features/calendar/google_calendar_server_link.dart';
 import 'features/calendar/calendar_event_writer.dart';
+import 'features/calendar/calendar_sample_events.dart';
 
 class InbbiApp extends StatefulWidget {
   const InbbiApp({super.key});
@@ -39,10 +42,13 @@ class _InbbiAppState extends State<InbbiApp> with WidgetsBindingObserver {
   StreamSubscription<List<ConnectivityResult>>? _networkSubscription;
   Set<ConnectivityResult>? _previousNetwork;
   Timer? _networkDebounce;
+  Timer? _authRefreshTimer;
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   late final NotificationService _notifications;
   late final CalendarSession _calendarSession;
   late final GoogleSignInCalendarAuth _calendarAuth;
   late final CalendarController _calendar;
+  late final AuthSessionService _auth;
   @override
   void initState() {
     super.initState();
@@ -64,7 +70,20 @@ class _InbbiAppState extends State<InbbiApp> with WidgetsBindingObserver {
                         configuredCalendarUri.host == '127.0.0.1')))
         ? configuredCalendarUri
         : null;
+    _auth = AuthSessionService(baseUrl: calendarBaseUrl);
+    _authRefreshTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => unawaited(_refreshAppSession()),
+    );
     _calendar = CalendarController(
+      sampleEvents:
+          kDebugMode &&
+              const bool.fromEnvironment(
+                'CALENDAR_SAMPLE_DATA',
+                defaultValue: true,
+              )
+          ? (month) => calendarSampleEvents(month)
+          : null,
       appApi: HttpAppCalendarApi(
         baseUrl: calendarBaseUrl,
         session: _calendarSession,
@@ -73,6 +92,10 @@ class _InbbiAppState extends State<InbbiApp> with WidgetsBindingObserver {
       googleAuth: _calendarAuth,
       googleApi: HttpGoogleCalendarApi(),
       appWriter: HttpAppCalendarEventWriter(baseUrl: calendarBaseUrl),
+      appOnlyWriter: HttpAppCalendarEventWriter(
+        baseUrl: calendarBaseUrl,
+        appOnly: true,
+      ),
       googleWriter: HttpGoogleCalendarEventWriter(),
       serverLink: HttpGoogleCalendarServerLink(
         baseUrl: calendarBaseUrl,
@@ -127,6 +150,7 @@ class _InbbiAppState extends State<InbbiApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _networkDebounce?.cancel();
+    _authRefreshTimer?.cancel();
     unawaited(_networkSubscription?.cancel());
     _push.removeListener(_syncPushToken);
     _realtime.dispose();
@@ -140,6 +164,7 @@ class _InbbiAppState extends State<InbbiApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshAppSession());
       _realtime.resume();
       unawaited(_push.resume());
       unawaited(_calendar.refresh());
@@ -156,37 +181,62 @@ class _InbbiAppState extends State<InbbiApp> with WidgetsBindingObserver {
     unawaited(_realtime.updateFcmToken(token));
   }
 
+  Future<void> _refreshAppSession() async {
+    final previous = _auth.accessToken;
+    if (previous == null) return;
+    try {
+      final current = await _auth.refreshIfNeeded();
+      if (current == previous) return;
+      _calendar.setAppToken(current);
+      if (current == null) {
+        await _realtime.stop();
+        _navigatorKey.currentState?.pushNamedAndRemoveUntil(
+          AppRoutes.login,
+          (route) => false,
+        );
+      } else {
+        await _realtime.refreshCredentials(current);
+      }
+    } catch (_) {
+      // Keep the session so a later network retry can restore it.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return CalendarScope(
-      controller: _calendar,
-      child: NotificationScope(
-        service: _notifications,
-        child: PushScope(
-          service: _push,
-          child: RealtimeScope(
-            service: _realtime,
-            child: MaterialApp(
-              title: '인삐',
-              debugShowCheckedModeBanner: false,
-              theme: AppTheme.light,
-              initialRoute: AppRoutes.splash,
-              routes: {
-                AppRoutes.splash: (context) => const SplashPage(),
-                AppRoutes.login: (context) => const LoginPage(),
-                AppRoutes.home: (context) =>
-                    const MainTabShell(initialIndex: 0),
-                AppRoutes.calendar: (context) =>
-                    const MainTabShell(initialIndex: 1),
-                AppRoutes.noticeFeed: (context) =>
-                    const MainTabShell(initialIndex: 2),
-                AppRoutes.course: (context) =>
-                    const MainTabShell(initialIndex: 3),
-                AppRoutes.notification: (context) =>
-                    const MainTabShell(initialIndex: 5),
-                AppRoutes.settings: (context) =>
-                    const MainTabShell(initialIndex: 4),
-              },
+    return AuthScope(
+      service: _auth,
+      child: CalendarScope(
+        controller: _calendar,
+        child: NotificationScope(
+          service: _notifications,
+          child: PushScope(
+            service: _push,
+            child: RealtimeScope(
+              service: _realtime,
+              child: MaterialApp(
+                navigatorKey: _navigatorKey,
+                title: '인삐',
+                debugShowCheckedModeBanner: false,
+                theme: AppTheme.light,
+                initialRoute: AppRoutes.splash,
+                routes: {
+                  AppRoutes.splash: (context) => const SplashPage(),
+                  AppRoutes.login: (context) => const LoginPage(),
+                  AppRoutes.home: (context) =>
+                      const MainTabShell(initialIndex: 0),
+                  AppRoutes.calendar: (context) =>
+                      const MainTabShell(initialIndex: 1),
+                  AppRoutes.noticeFeed: (context) =>
+                      const MainTabShell(initialIndex: 2),
+                  AppRoutes.course: (context) =>
+                      const MainTabShell(initialIndex: 3),
+                  AppRoutes.notification: (context) =>
+                      const MainTabShell(initialIndex: 5),
+                  AppRoutes.settings: (context) =>
+                      const MainTabShell(initialIndex: 4),
+                },
+              ),
             ),
           ),
         ),

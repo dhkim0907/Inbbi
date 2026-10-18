@@ -12,6 +12,7 @@ class CalendarEventNotFound implements Exception {
 }
 
 abstract interface class CalendarEventWriter {
+  Future<void> delete(String eventId, String token);
   Future<CalendarEvent> create(CalendarEventDraft draft, String token);
   Future<CalendarEvent> update(
     String eventId,
@@ -54,10 +55,32 @@ class HttpGoogleCalendarEventWriter implements CalendarEventWriter {
         .patch(
           uri,
           headers: _headers(token),
-          body: jsonEncode(draft.toGoogleJson()),
+          body: jsonEncode({
+            ...draft.toGoogleJson(),
+            'location': draft.location,
+            'description': draft.memo,
+          }),
         )
         .timeout(const Duration(seconds: 15));
     return _parse(response);
+  }
+
+  @override
+  Future<void> delete(String eventId, String token) async {
+    final uri = _events.replace(
+      pathSegments: [..._events.pathSegments, _rawGoogleId(eventId)],
+    );
+    final response = await _client
+        .delete(uri, headers: _headers(token))
+        .timeout(const Duration(seconds: 15));
+    if (response.statusCode == 401) throw const GoogleCalendarAuthRequired();
+    if (response.statusCode == 403) throw const GoogleCalendarAccessDenied();
+    if (response.statusCode == 404 || response.statusCode == 410) {
+      throw const CalendarEventNotFound();
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('Google Calendar HTTP ${response.statusCode}');
+    }
   }
 
   Map<String, String> _headers(String token) => {
@@ -81,10 +104,14 @@ class HttpGoogleCalendarEventWriter implements CalendarEventWriter {
 }
 
 class HttpAppCalendarEventWriter implements CalendarEventWriter {
-  HttpAppCalendarEventWriter({required this.baseUrl, http.Client? client})
-    : _client = client ?? http.Client();
+  HttpAppCalendarEventWriter({
+    required this.baseUrl,
+    http.Client? client,
+    this.appOnly = false,
+  }) : _client = client ?? http.Client();
 
   final Uri? baseUrl;
+  final bool appOnly;
   final http.Client _client;
 
   @override
@@ -93,7 +120,9 @@ class HttpAppCalendarEventWriter implements CalendarEventWriter {
         .post(
           _events,
           headers: _headers(token),
-          body: jsonEncode(draft.toServerJson()),
+          body: jsonEncode(
+            appOnly ? draft.toAppServerJson() : draft.toServerJson(),
+          ),
         )
         .timeout(const Duration(seconds: 15));
     return _parse(response);
@@ -111,16 +140,39 @@ class HttpAppCalendarEventWriter implements CalendarEventWriter {
         .patch(
           uri,
           headers: _headers(token),
-          body: jsonEncode(draft.toServerJson()),
+          body: jsonEncode({
+            ...(appOnly ? draft.toAppServerJson() : draft.toServerJson()),
+            'location': draft.location,
+            'description': draft.memo,
+          }),
         )
         .timeout(const Duration(seconds: 15));
     return _parse(response);
   }
 
+  @override
+  Future<void> delete(String eventId, String token) async {
+    final uri = _events.replace(
+      pathSegments: [..._events.pathSegments, _rawServerId(eventId)],
+    );
+    final response = await _client
+        .delete(uri, headers: _headers(token))
+        .timeout(const Duration(seconds: 15));
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw const CalendarAuthRequired();
+    }
+    if (response.statusCode == 404) throw const CalendarEventNotFound();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('Calendar HTTP ${response.statusCode}');
+    }
+  }
+
   Uri get _events {
     final base = baseUrl;
     if (base == null) throw const CalendarUnavailable();
-    return base.resolve('api/v1/calendar/events');
+    return base.resolve(
+      appOnly ? 'api/v1/calendar/app-events' : 'api/v1/calendar/events',
+    );
   }
 
   Map<String, String> _headers(String token) => {

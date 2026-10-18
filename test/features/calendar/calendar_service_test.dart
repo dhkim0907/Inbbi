@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -11,9 +13,11 @@ import 'package:inbbi/features/calendar/calendar_event_draft.dart';
 import 'package:inbbi/features/calendar/calendar_event_writer.dart';
 import 'package:inbbi/features/calendar/calendar_page.dart';
 import 'package:inbbi/features/calendar/calendar_scope.dart';
+import 'package:inbbi/features/calendar/calendar_sample_events.dart';
 import 'package:inbbi/features/settings/settings_page.dart';
 import 'package:inbbi/features/home/home_dashboard_page.dart';
 import 'package:inbbi/core/widgets/month_calendar_grid.dart';
+import 'package:inbbi/core/widgets/calendar_week_event_bars.dart';
 import 'package:inbbi/features/calendar/google_calendar_api.dart';
 import 'package:inbbi/features/calendar/google_calendar_auth.dart';
 import 'package:inbbi/features/calendar/google_calendar_server_link.dart';
@@ -89,6 +93,11 @@ class _ServerLink implements GoogleCalendarServerLink {
 }
 
 class _RecordingWriter implements CalendarEventWriter {
+  @override
+  Future<void> delete(String eventId, String token) async {
+    calls.add('delete:$eventId:$token');
+  }
+
   final calls = <String>[];
   @override
   Future<CalendarEvent> create(CalendarEventDraft draft, String token) async {
@@ -97,7 +106,9 @@ class _RecordingWriter implements CalendarEventWriter {
       id: 'server:created',
       source: CalendarSource.appServer,
       title: draft.title,
-      category: 'Google',
+      category: draft.category,
+      location: draft.location,
+      memo: draft.memo,
       start: draft.start,
       end: draft.end,
       allDay: draft.allDay,
@@ -115,6 +126,17 @@ class _RecordingWriter implements CalendarEventWriter {
   }
 }
 
+class _SavingWriter extends _RecordingWriter {
+  _SavingWriter(this.app);
+  final _AppApi app;
+  @override
+  Future<CalendarEvent> create(CalendarEventDraft draft, String token) async {
+    final event = await super.create(draft, token);
+    app.events.add(event);
+    return event;
+  }
+}
+
 class _InteractiveAuth extends _Auth {
   int interactiveRequests = 0;
   @override
@@ -125,7 +147,125 @@ class _InteractiveAuth extends _Auth {
   }
 }
 
+class _OneClickAuth extends _Auth {
+  final accountChanges = StreamController<GoogleCalendarAccount?>.broadcast();
+
+  @override
+  Stream<GoogleCalendarAccount?> get changes => accountChanges.stream;
+
+  @override
+  Future<GoogleCalendarAccount?> connect() async {
+    account = const GoogleCalendarAccount('user', 'test@example.com');
+    accountChanges.add(account);
+    return account;
+  }
+}
+
 void main() {
+  for (final width in [390.0, 840.0, 1280.0]) {
+    testWidgets('종류별 샘플 일정 표시와 새로고침 너비 $width', (tester) async {
+      tester.view.physicalSize = Size(width, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final today = DateTime.now();
+      final controller = CalendarController(
+        appApi: _AppApi(),
+        session: CalendarSession(),
+        googleAuth: _Auth(),
+        googleApi: _GoogleApi(),
+        sampleEvents: (month) =>
+            calendarSampleEvents(month, referenceDate: today),
+      );
+      addTearDown(controller.dispose);
+      final notifications = NotificationService(_NotificationStorage());
+      addTearDown(notifications.dispose);
+      await notifications.initialize();
+      await controller.initialize();
+      await controller.refresh();
+      expect(controller.events, hasLength(10));
+      await tester.pumpWidget(
+        NotificationScope(
+          service: notifications,
+          child: CalendarScope(
+            controller: controller,
+            child: const MaterialApp(home: CalendarPage()),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('[샘플] 자료구조 강의'), findsWidgets);
+      expect(find.byKey(const ValueKey('calendar-empty-state')), findsNothing);
+      final bars = find.byWidgetPredicate(
+        (widget) =>
+            widget.key is ValueKey<String> &&
+            (widget.key! as ValueKey<String>).value.startsWith('calendar-bar:'),
+      );
+      expect(bars, findsWidgets);
+      for (final element in bars.evaluate()) {
+        final line = find.byKey(element.widget.key!);
+        final week = find
+            .ancestor(
+              of: find.ancestor(
+                of: line,
+                matching: find.byType(CalendarWeekEventBars),
+              ),
+              matching: find.byType(Stack),
+            )
+            .last;
+        expect(
+          tester.getCenter(line).dy,
+          closeTo(tester.getCenter(week).dy - (width >= 1200 ? 8 : 2), 0.01),
+        );
+      }
+      await tester.tap(find.widgetWithText(ActionChip, '과제'));
+      await tester.pump();
+      expect(bars, findsNothing);
+      expect(tester.takeException(), isNull);
+      await controller.setMonth(DateTime(today.year, today.month + 1));
+      await controller.refresh();
+      expect(controller.events, hasLength(10));
+      expect(
+        controller.events.every(
+          (event) => event.overlapsMonth(controller.month),
+        ),
+        isTrue,
+      );
+    });
+  }
+
+  if (kIsWeb) {
+    testWidgets('설정의 한 번의 연결 동작으로 Google 일정을 조회한다', (tester) async {
+      final auth = _OneClickAuth();
+      addTearDown(auth.accountChanges.close);
+      final google = _GoogleApi();
+      final controller = CalendarController(
+        appApi: _AppApi(),
+        session: CalendarSession(),
+        googleAuth: auth,
+        googleApi: google,
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      final notifications = NotificationService(_NotificationStorage());
+      addTearDown(notifications.dispose);
+      await notifications.initialize();
+      await tester.pumpWidget(
+        CalendarScope(
+          controller: controller,
+          child: NotificationScope(
+            service: notifications,
+            child: const MaterialApp(home: SettingsPage()),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Google Calendar 연결'));
+      await tester.pumpAndSettle();
+      expect(google.lastToken, 'test-token');
+      expect(find.text('일정 권한 허용'), findsNothing);
+    });
+  }
+
   test('서버 연결 중 생성·수정은 앱 인증으로 전달한다', () async {
     final serverWriter = _RecordingWriter();
     final directWriter = _RecordingWriter();
@@ -439,6 +579,320 @@ void main() {
     expect(controller.googleAuthorizationRequired, false);
   });
 
+  for (final linked in [false, true]) {
+    test('앱 전용 저장은 Google 연결 여부와 무관하게 앱 전용 서비스만 사용한다 $linked', () async {
+      final app = _AppApi();
+      final appOnlyWriter = _SavingWriter(app);
+      final googleWriter = _RecordingWriter();
+      final serverGoogleWriter = _RecordingWriter();
+      final controller = CalendarController(
+        appApi: app,
+        session: CalendarSession()..setToken('test-app-token'),
+        googleAuth: _Auth(),
+        googleApi: _GoogleApi(),
+        appOnlyWriter: appOnlyWriter,
+        appWriter: serverGoogleWriter,
+        googleWriter: googleWriter,
+      )..serverLinked = linked;
+      addTearDown(controller.dispose);
+      await controller.setMonth(DateTime(2026, 10));
+      await controller.createEvent(
+        CalendarEventDraft(
+          title: '앱 전용',
+          category: '일정',
+          start: DateTime(2026, 10, 9, 9),
+          end: DateTime(2026, 10, 9, 10),
+          allDay: false,
+          saveTarget: CalendarSaveTarget.appOnly,
+        ),
+      );
+      expect(appOnlyWriter.calls, ['create:test-app-token']);
+      expect(serverGoogleWriter.calls, isEmpty);
+      expect(googleWriter.calls, isEmpty);
+      expect(controller.events.single.title, '앱 전용');
+    });
+  }
+
+  test('앱 전용 저장은 앱 로그인 없이 저장하거나 Google로 대체하지 않는다', () async {
+    final writer = _RecordingWriter();
+    final controller = CalendarController(
+      appApi: _AppApi(),
+      session: CalendarSession(),
+      googleAuth: _Auth(),
+      googleApi: _GoogleApi(),
+      appOnlyWriter: writer,
+    );
+    addTearDown(controller.dispose);
+    await expectLater(
+      controller.createEvent(
+        CalendarEventDraft(
+          title: '앱 전용',
+          start: DateTime(2026, 10, 9, 9),
+          end: DateTime(2026, 10, 9, 10),
+          allDay: false,
+          saveTarget: CalendarSaveTarget.appOnly,
+        ),
+      ),
+      throwsA(isA<CalendarAuthRequired>()),
+    );
+    expect(writer.calls, isEmpty);
+  });
+
+  for (final target in CalendarSaveTarget.values) {
+    for (final width in [390.0, 840.0, 1280.0]) {
+      testWidgets('일정 추가 버튼에서 저장 후 캘린더 반영 $target 너비 $width', (tester) async {
+        tester.view.physicalSize = Size(width, 1000);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final app = _AppApi();
+        final writer = _SavingWriter(app);
+        final appOnlyWriter = _SavingWriter(app);
+        final controller = CalendarController(
+          appApi: app,
+          session: CalendarSession()..setToken('test-token'),
+          googleAuth: _Auth(),
+          googleApi: _GoogleApi(),
+          appWriter: writer,
+          appOnlyWriter: appOnlyWriter,
+        )..serverLinked = true;
+        addTearDown(controller.dispose);
+        final notifications = NotificationService(_NotificationStorage());
+        addTearDown(notifications.dispose);
+        await notifications.initialize();
+        await controller.setMonth(DateTime(2026, 9));
+        await tester.pumpWidget(
+          NotificationScope(
+            service: notifications,
+            child: CalendarScope(
+              controller: controller,
+              child: const MaterialApp(home: CalendarPage()),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final button = find.byType(FloatingActionButton);
+        expect(button, findsOneWidget);
+        expect(
+          tester.widget<FloatingActionButton>(button).shape,
+          isA<CircleBorder>(),
+        );
+        final position = tester.getRect(button);
+        expect(position.right, greaterThan(width - 40));
+        expect(position.bottom, greaterThan(950));
+        await tester.tap(find.text('15'));
+        await tester.pump();
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        expect(find.text('2026-09-15'), findsNWidgets(2));
+        await tester.enterText(
+          find.byKey(const ValueKey('calendar-event-title')),
+          '새 일정',
+        );
+        final option = find.widgetWithText(
+          ChoiceChip,
+          target == CalendarSaveTarget.appOnly ? '내 캘린더에만 저장' : '구글 캘린더에도 저장',
+        );
+        await tester.ensureVisible(option);
+        await tester.tap(option);
+        await tester.pump();
+        await tester.tap(find.text('저장'));
+        await tester.pumpAndSettle();
+        expect(
+          target == CalendarSaveTarget.appOnly
+              ? appOnlyWriter.calls
+              : writer.calls,
+          ['create:test-token'],
+        );
+        expect(
+          target == CalendarSaveTarget.appOnly
+              ? writer.calls
+              : appOnlyWriter.calls,
+          isEmpty,
+        );
+        expect(app.events.single.start, DateTime(2026, 9, 15, 9));
+        expect(find.text('새 일정'), findsOneWidget);
+        expect(find.text('일정을 저장했어요.'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  for (final width in [390.0, 839.0, 840.0, 1280.0]) {
+    for (final month in [DateTime(2026, 9), DateTime(2026, 12)]) {
+      testWidgets('다음 달 날짜 표시와 선택 $month 너비 $width', (tester) async {
+        tester.view.physicalSize = Size(width, 1000);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final nextDate = DateTime(month.year, month.month + 1, 2);
+        final controller = CalendarController(
+          appApi: _AppApi()
+            ..events = [
+              CalendarEvent(
+                id: 'next-month',
+                source: CalendarSource.appServer,
+                title: '다음 달 일정',
+                category: '일정',
+                start: nextDate,
+                end: nextDate.add(const Duration(hours: 1)),
+                allDay: false,
+              ),
+            ],
+          session: CalendarSession(),
+          googleAuth: _Auth(),
+          googleApi: _GoogleApi(),
+        );
+        addTearDown(controller.dispose);
+        final notifications = NotificationService(_NotificationStorage());
+        addTearDown(notifications.dispose);
+        await notifications.initialize();
+        await controller.setMonth(month);
+        await tester.pumpWidget(
+          NotificationScope(
+            service: notifications,
+            child: CalendarScope(
+              controller: controller,
+              child: const MaterialApp(home: CalendarPage()),
+            ),
+          ),
+        );
+        await tester.pump();
+        final nextDay = find
+            .descendant(
+              of: find.byKey(const ValueKey('calendar-month-card')),
+              matching: find.text('2'),
+            )
+            .last;
+        final currentDay = find
+            .descendant(
+              of: find.byKey(const ValueKey('calendar-month-card')),
+              matching: find.text('2'),
+            )
+            .first;
+        expect(
+          tester.widget<Text>(nextDay).style!.color!.a,
+          lessThan(tester.widget<Text>(currentDay).style!.color!.a),
+        );
+        await tester.ensureVisible(nextDay);
+        await tester.tap(nextDay);
+        await tester.pumpAndSettle();
+        expect(controller.month, DateTime(nextDate.year, nextDate.month));
+        expect(find.textContaining('${nextDate.month}월 2일'), findsOneWidget);
+        expect(find.text('다음 달 일정'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  for (final width in [390.0, 839.0, 840.0, 1280.0]) {
+    testWidgets('완료 상태 범례와 일정 색상 너비 $width', (tester) async {
+      tester.view.physicalSize = Size(width, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final controller = CalendarController(
+        appApi: _AppApi()
+          ..events = [
+            for (final completed in [false, true])
+              CalendarEvent(
+                id: 'status:$completed',
+                source: CalendarSource.appServer,
+                title: '상태 일정 $completed',
+                category: '일정',
+                start: DateTime(2026, 9, 15, 9),
+                end: DateTime(2026, 9, 15, 10),
+                allDay: false,
+                isCompleted: completed,
+              ),
+          ],
+        session: CalendarSession(),
+        googleAuth: _Auth(),
+        googleApi: _GoogleApi(),
+      );
+      addTearDown(controller.dispose);
+      final notifications = NotificationService(_NotificationStorage());
+      addTearDown(notifications.dispose);
+      await notifications.initialize();
+      await controller.initialize();
+      await controller.setMonth(DateTime(2026, 9));
+      await tester.pumpWidget(
+        NotificationScope(
+          service: notifications,
+          child: CalendarScope(
+            controller: controller,
+            child: const MaterialApp(home: CalendarPage()),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('미완료'), findsOneWidget);
+      expect(find.text('완료'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('calendar-empty-state')),
+        findsOneWidget,
+      );
+      expect(find.text('표시할 일정이 없어요.'), findsOneWidget);
+      expect(find.text('오른쪽 아래 + 버튼으로 일정이나 할일을 추가해보세요.'), findsOneWidget);
+      expect(find.text('미완료 강의·과제·할일'), findsOneWidget);
+      expect(find.text('0개'), findsOneWidget);
+      expect(find.text('해당 기간에 미완료 항목이 없어요.'), findsOneWidget);
+      final decorations = tester
+          .widgetList<Container>(
+            find.descendant(
+              of: find.byKey(const ValueKey('calendar-month-card')),
+              matching: find.byType(Container),
+            ),
+          )
+          .map((widget) => widget.decoration)
+          .whereType<BoxDecoration>()
+          .where(
+            (decoration) =>
+                decoration.border is Border &&
+                (decoration.border! as Border).top.color ==
+                    const Color(0xFFAC59D6),
+          );
+      expect(
+        decorations.any((decoration) => decoration.color == Colors.transparent),
+        true,
+      );
+      expect(
+        decorations.any(
+          (decoration) => decoration.color == const Color(0xFFAC59D6),
+        ),
+        true,
+      );
+      final day14 = tester.getCenter(find.text('14')).dx;
+      final day15 = tester.getCenter(find.text('15')).dx;
+      final day16 = tester.getCenter(find.text('16')).dx;
+      expect(day15, closeTo((day14 + day16) / 2, 0.01));
+      expect(find.byType(ActionChip), findsNWidgets(5));
+      for (final entry in {
+        '강의': const Color(0xFF5865E8),
+        '과제': const Color(0xFFD49314),
+        '일정': const Color(0xFFAC59D6),
+        '할일': const Color(0xFF25AE91),
+      }.entries) {
+        final chip = find.widgetWithText(ActionChip, entry.key);
+        await tester.ensureVisible(chip);
+        await tester.tap(chip);
+        await tester.pump();
+        expect(tester.widget<ActionChip>(chip).backgroundColor, entry.value);
+        final ink = tester.widget<Ink>(
+          find.descendant(of: chip, matching: find.byType(Ink)).first,
+        );
+        expect((ink.decoration! as ShapeDecoration).color, entry.value);
+      }
+      await tester.tap(find.widgetWithText(ActionChip, '전체'));
+      await tester.pump();
+      await tester.ensureVisible(find.text('15'));
+      await tester.tap(find.text('15'));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('calendar-empty-state')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final width in [390.0, 839.0, 840.0, 1280.0]) {
     testWidgets('캘린더 화면 너비 $width에서 서버 일정 표시', (tester) async {
       tester.view.physicalSize = Size(width, 900);
@@ -487,6 +941,20 @@ void main() {
       );
       await tester.ensureVisible(find.text('27'));
       await tester.tap(find.text('27'));
+      await tester.pump();
+      expect(find.text('서버 일정'), findsOneWidget);
+      expect(find.text('전체'), findsNothing);
+      expect(find.byType(FilterChip), findsNWidgets(5));
+      expect(
+        tester
+            .widgetList<FilterChip>(find.byType(FilterChip))
+            .every((chip) => chip.selected),
+        true,
+      );
+      await tester.tap(find.widgetWithText(FilterChip, '과제'));
+      await tester.pump();
+      expect(find.text('서버 일정'), findsNothing);
+      await tester.tap(find.widgetWithText(FilterChip, '과제'));
       await tester.pump();
       expect(find.text('서버 일정'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -566,7 +1034,11 @@ void main() {
         ),
       );
       expect(find.text('Google Calendar 연동'), findsOneWidget);
-      expect(find.text('눌러서 연결'), findsOneWidget);
+      if (kIsWeb) {
+        expect(find.text('Google Calendar 연결'), findsOneWidget);
+      } else {
+        expect(find.text('눌러서 연결'), findsOneWidget);
+      }
       expect(find.text('테스트 일정 서버'), findsNothing);
       expect(find.text('앱 외부 알림'), findsNothing);
       expect(find.text('받을 알림 종류'), findsNothing);

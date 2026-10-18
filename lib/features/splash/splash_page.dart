@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/app_routes.dart';
 import '../../core/theme/app_colors.dart';
+import '../auth/auth_scope.dart';
+import '../calendar/calendar_scope.dart';
+import '../notification/realtime/realtime_scope.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -14,7 +17,6 @@ class SplashPage extends StatefulWidget {
 class _SplashPageState extends State<SplashPage> {
   static const Color _brandColor = Color(0xFF346CB2);
   static const Duration _dotInterval = Duration(milliseconds: 250);
-  static const int _maxCycles = 2;
   static const TextStyle _loadingTextStyle = TextStyle(
     fontSize: 14,
     color: AppColors.textSecondary,
@@ -22,25 +24,39 @@ class _SplashPageState extends State<SplashPage> {
 
   Timer? _timer;
   int _dotCount = 0;
-  int _cycleCount = 0;
 
   @override
   void initState() {
     super.initState();
     _timer = Timer.periodic(_dotInterval, _onTick);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_restoreLogin());
+    });
+  }
+
+  Future<void> _restoreLogin() async {
+    String? token;
+    try {
+      token = await AuthScope.of(context).restore();
+      if (token != null && mounted) {
+        CalendarScope.of(context).setAppToken(token);
+        await RealtimeScope.maybeOf(
+          context,
+        )?.start(accessToken: token, deviceId: 'test-device');
+      }
+    } catch (_) {
+      token = null;
+    }
+    if (!mounted) return;
+    Navigator.of(
+      context,
+    ).pushReplacementNamed(token == null ? AppRoutes.login : AppRoutes.home);
   }
 
   void _onTick(Timer timer) {
     setState(() {
       _dotCount = (_dotCount + 1) % 4;
     });
-    if (_dotCount == 0) {
-      _cycleCount++;
-      if (_cycleCount >= _maxCycles) {
-        timer.cancel();
-        Navigator.of(context).pushReplacementNamed(AppRoutes.login);
-      }
-    }
   }
 
   @override

@@ -50,3 +50,5 @@ config/*.local.json
 .secrets/
 .venv/
 __pycache__/
+# Widget Preview related
+.widget_preview/

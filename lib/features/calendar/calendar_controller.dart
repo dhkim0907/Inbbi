@@ -18,7 +18,9 @@ class CalendarController extends ChangeNotifier {
     required this.googleApi,
     this.serverLink,
     this.appWriter,
+    this.appOnlyWriter,
     this.googleWriter,
+    this.sampleEvents,
   });
 
   final AppCalendarApi appApi;
@@ -27,8 +29,12 @@ class CalendarController extends ChangeNotifier {
   final GoogleCalendarApi googleApi;
   final GoogleCalendarServerLink? serverLink;
   final CalendarEventWriter? appWriter;
+  final CalendarEventWriter? appOnlyWriter;
   final CalendarEventWriter? googleWriter;
+  final List<CalendarEvent> Function(DateTime month)? sampleEvents;
   StreamSubscription<GoogleCalendarAccount?>? _accountSubscription;
+  final Map<String, CalendarEvent> _editedSamples = {};
+  final Set<String> _deletedSamples = {};
   List<CalendarEvent> _appEvents = [];
   List<CalendarEvent> _googleEvents = [];
   DateTime month = DateTime(DateTime.now().year, DateTime.now().month, 1);
@@ -51,6 +57,14 @@ class CalendarController extends ChangeNotifier {
   bool _disposed = false;
 
   List<CalendarEvent> get events => [
+    ...?sampleEvents
+        ?.call(month)
+        .where(
+          (event) =>
+              !_editedSamples.containsKey(event.id) &&
+              !_deletedSamples.contains(event.id),
+        ),
+    ..._editedSamples.values.where((event) => event.overlapsMonth(month)),
     ..._appEvents.where((event) => event.overlapsMonth(month)),
     if (!serverLinked)
       ..._googleEvents.where((event) => event.overlapsMonth(month)),
@@ -122,6 +136,17 @@ class CalendarController extends ChangeNotifier {
     await Future.wait([refreshApp(), refreshGoogle()]);
   }
 
+  Future<CalendarEvent> createEvent(CalendarEventDraft draft) async {
+    if (draft.saveTarget == CalendarSaveTarget.googleCalendar) {
+      return createGoogleEvent(draft);
+    }
+    final writer = appOnlyWriter;
+    if (writer == null) throw const CalendarUnavailable();
+    final result = await writer.create(draft, _appToken);
+    await refreshApp();
+    return result;
+  }
+
   /// Creates an event on the connected user's primary Google calendar.
   Future<CalendarEvent> createGoogleEvent(CalendarEventDraft draft) async {
     final result = serverLinked
@@ -141,6 +166,75 @@ class CalendarController extends ChangeNotifier {
         : await _directWriter.update(eventId, draft, await _googleToken);
     await refresh();
     return result;
+  }
+
+  Future<CalendarEvent> updateEvent(
+    CalendarEvent event,
+    CalendarEventDraft draft,
+  ) async {
+    if (event.id.startsWith('sample:') && sampleEvents != null) {
+      final updated = CalendarEvent(
+        id: event.id,
+        source: event.source,
+        calendarId: event.calendarId,
+        title: draft.title,
+        category: draft.category,
+        start: draft.allDay
+            ? DateTime.utc(draft.start.year, draft.start.month, draft.start.day)
+            : draft.start,
+        end: draft.allDay
+            ? DateTime.utc(draft.end.year, draft.end.month, draft.end.day)
+            : draft.end,
+        allDay: draft.allDay,
+        isCompleted: event.isCompleted,
+        location: draft.location,
+        memo: draft.memo,
+      );
+      _editedSamples[event.id] = updated;
+      _emit();
+      return updated;
+    }
+    final writer = _writerFor(event);
+    final token = event.source == CalendarSource.google
+        ? await _googleToken
+        : _appToken;
+    final updated = await writer.update(event.id, draft, token);
+    _appEvents = [
+      for (final item in _appEvents)
+        if (item.id == event.id) updated else item,
+    ];
+    _googleEvents = [
+      for (final item in _googleEvents)
+        if (item.id == event.id) updated else item,
+    ];
+    _emit();
+    await refresh();
+    return updated;
+  }
+
+  Future<void> deleteEvent(CalendarEvent event) async {
+    if (event.id.startsWith('sample:') && sampleEvents != null) {
+      _editedSamples.remove(event.id);
+      _deletedSamples.add(event.id);
+      _emit();
+      return;
+    }
+    final writer = _writerFor(event);
+    final token = event.source == CalendarSource.google
+        ? await _googleToken
+        : _appToken;
+    await writer.delete(event.id, token);
+    _appEvents = _appEvents.where((item) => item.id != event.id).toList();
+    _googleEvents = _googleEvents.where((item) => item.id != event.id).toList();
+    _emit();
+    await refresh();
+  }
+
+  CalendarEventWriter _writerFor(CalendarEvent event) {
+    if (event.source == CalendarSource.google) return _directWriter;
+    if (event.calendarId == 'primary') return _serverWriter;
+    if (event.calendarId != null) throw const CalendarUnavailable();
+    return appOnlyWriter ?? (throw const CalendarUnavailable());
   }
 
   CalendarEventWriter get _serverWriter =>
@@ -239,6 +333,8 @@ class CalendarController extends ChangeNotifier {
   }
 
   Future<void> connectGoogle() async {
+    googleError = null;
+    _emit();
     try {
       final account = await googleAuth.connect();
       if (account == null) return;
@@ -246,7 +342,7 @@ class CalendarController extends ChangeNotifier {
       if (!kIsWeb && serverConnectionAvailable && !serverLinked) {
         await connectGoogleToServer();
       }
-      if (!serverConnectionAvailable) await authorizeGoogle();
+      if (!serverConnectionAvailable && !kIsWeb) await authorizeGoogle();
     } catch (_) {
       googleError = 'Google 계정을 연결하지 못했어요.';
       _emit();

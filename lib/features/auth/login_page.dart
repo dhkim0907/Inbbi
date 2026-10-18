@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import '../../core/app_routes.dart';
 import '../../core/layout/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
+import '../calendar/calendar_scope.dart';
+import '../notification/realtime/realtime_scope.dart';
+import 'auth_scope.dart';
+import 'test_auth_api.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -16,6 +20,8 @@ class _LoginPageState extends State<LoginPage> {
 
   final TextEditingController _idController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  bool _loading = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -49,8 +55,30 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  void _handleLogin() {
-    Navigator.of(context).pushReplacementNamed(AppRoutes.home);
+  Future<void> _handleLogin() async {
+    if (_loading) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final token = await AuthScope.of(
+        context,
+      ).login(_idController.text.trim(), _passwordController.text);
+      if (!mounted) return;
+      CalendarScope.of(context).setAppToken(token);
+      final realtime = RealtimeScope.maybeOf(context);
+      if (realtime != null && token != null) {
+        await realtime.start(accessToken: token, deviceId: 'test-device');
+      }
+      if (mounted) Navigator.of(context).pushReplacementNamed(AppRoutes.home);
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = '로그인 서버에 연결하지 못했어요.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -127,7 +155,7 @@ class _LoginPageState extends State<LoginPage> {
         ),
         const SizedBox(height: 40),
         const Text(
-          '인하대 포털 ID',
+          '계정 ID',
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
@@ -137,7 +165,7 @@ class _LoginPageState extends State<LoginPage> {
         const SizedBox(height: 8),
         TextField(
           controller: _idController,
-          keyboardType: TextInputType.number,
+          keyboardType: TextInputType.text,
           style: const TextStyle(fontSize: 16, color: Colors.black),
           decoration: _fieldDecoration(''),
         ),
@@ -157,12 +185,16 @@ class _LoginPageState extends State<LoginPage> {
           style: const TextStyle(fontSize: 16, color: Colors.black),
           decoration: _fieldDecoration(''),
         ),
+        if (_error != null) ...[
+          const SizedBox(height: 16),
+          Text(_error!, style: const TextStyle(color: Colors.red)),
+        ],
         const SizedBox(height: 32),
         SizedBox(
           width: double.infinity,
           height: 56,
           child: ElevatedButton(
-            onPressed: _handleLogin,
+            onPressed: _loading ? null : _handleLogin,
             style: ElevatedButton.styleFrom(
               backgroundColor: _brandColor,
               foregroundColor: Colors.white,
@@ -171,16 +203,18 @@ class _LoginPageState extends State<LoginPage> {
               ),
               elevation: 0,
             ),
-            child: const Text(
-              '로그인',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
+            child: _loading
+                ? const CircularProgressIndicator(color: Colors.white)
+                : const Text(
+                    '로그인',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
           ),
         ),
         const SizedBox(height: 12),
         const Center(
           child: Text(
-            '비밀번호는 암호화되어 저장됩니다.',
+            '비밀번호는 암호화되어 저장됩니다. ',
             style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
           ),
         ),

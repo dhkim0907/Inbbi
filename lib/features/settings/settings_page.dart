@@ -7,9 +7,10 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/base_view.dart';
 import '../../core/widgets/notification_bell_button.dart';
 import '../calendar/calendar_scope.dart';
-import '../calendar/google_sign_in_button.dart' as google_button;
+import '../auth/auth_scope.dart';
 import '../notification/push/push_scope.dart';
 import '../notification/realtime/realtime_scope.dart';
+import 'data_collection_settings_card.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -177,6 +178,12 @@ class _SettingsPageState extends State<SettingsPage> {
         );
         return;
       }
+    }
+    if (!mounted) return;
+    try {
+      await AuthScope.of(context).logout();
+    } catch (_) {
+      // The local token is cleared even if the server is unavailable.
     }
     if (!mounted) return;
     Navigator.of(
@@ -385,9 +392,10 @@ class _SettingsPageState extends State<SettingsPage> {
               child: const Text('일정 권한 허용'),
             );
           } else if (!linked && kIsWeb && calendar.googleAuth.configured) {
-            action = calendar.googleReady
-                ? google_button.buildGoogleSignInButton()
-                : const Text('Google 로그인 준비 중');
+            action = TextButton(
+              onPressed: calendar.googleReady ? calendar.connectGoogle : null,
+              child: const Text('Google Calendar 연결'),
+            );
           }
           return _buildStatusRow(
             label: 'Google Calendar 연동',
@@ -399,6 +407,21 @@ class _SettingsPageState extends State<SettingsPage> {
                 ? _handleGoogleCalendarTap
                 : null,
             trailing: action,
+          );
+        },
+      ),
+      Builder(
+        builder: (context) {
+          final calendar = CalendarScope.of(context);
+          if (calendar.googleError == null) {
+            return const SizedBox.shrink();
+          }
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              calendar.googleError!,
+              style: const TextStyle(color: AppColors.error),
+            ),
           );
         },
       ),
@@ -426,6 +449,7 @@ class _SettingsPageState extends State<SettingsPage> {
         onTap: () =>
             setState(() => _dueDateAlertEnabled = !_dueDateAlertEnabled),
       ),
+      const DataCollectionSettingsCard(),
       _buildActionRow(label: '자동 로그인 해제', onTap: _handleAutoLoginReset),
     ];
   }

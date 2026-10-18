@@ -100,14 +100,21 @@ CalendarEvent? parseGoogleEvent(Map<String, dynamic> value) {
       : DateTime.tryParse(endMap['dateTime'] as String? ?? '');
   if (start == null || end == null || !end.isAfter(start)) return null;
   final summary = value['summary'];
+  final extended = value['extendedProperties'];
+  final private = extended is Map ? extended['private'] : null;
+  final category = private is Map ? private['inbbiCategory'] : null;
   return CalendarEvent(
     id: 'google:primary:$id',
     source: CalendarSource.google,
     calendarId: 'primary',
     title: summary is String && summary.trim().isNotEmpty ? summary : '(제목 없음)',
-    category: 'Google',
+    category: category == '일정' || category == '할일'
+        ? category as String
+        : 'Google',
     start: start,
     end: end,
     allDay: allDay,
+    location: value['location'] as String? ?? '',
+    memo: value['description'] as String? ?? '',
   );
 }

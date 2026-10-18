@@ -6,6 +6,7 @@ class AppTheme {
 
   static ThemeData get light {
     return ThemeData(
+      fontFamily: 'NotoSansKR',
       useMaterial3: true,
       scaffoldBackgroundColor: AppColors.background,
       colorScheme: ColorScheme.fromSeed(

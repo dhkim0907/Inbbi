@@ -10,6 +10,9 @@ class CalendarEvent {
     required this.end,
     required this.allDay,
     this.calendarId,
+    this.isCompleted = false,
+    this.location = '',
+    this.memo = '',
   });
 
   final String id;
@@ -22,6 +25,9 @@ class CalendarEvent {
   final DateTime end;
   final bool allDay;
   final String? calendarId;
+  final bool isCompleted;
+  final String location;
+  final String memo;
 
   bool occursOn(DateTime day) {
     final first = allDay

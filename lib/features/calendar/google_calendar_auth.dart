@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:http/http.dart' as http;
 
 const calendarEventsScope = 'https://www.googleapis.com/auth/calendar.events';
+const _googleEmailScope = 'https://www.googleapis.com/auth/userinfo.email';
 
 class GoogleCalendarAccount {
   const GoogleCalendarAccount(this.id, this.email);
@@ -28,6 +31,7 @@ class GoogleSignInCalendarAuth implements GoogleCalendarAuth {
   final _google = GoogleSignIn.instance;
   final _changes = StreamController<GoogleCalendarAccount?>.broadcast();
   GoogleSignInAccount? _account;
+  GoogleCalendarAccount? _webAccount;
   Future<void>? _ready;
 
   @override
@@ -38,7 +42,7 @@ class GoogleSignInCalendarAuth implements GoogleCalendarAuth {
       : webClientId.isNotEmpty;
 
   @override
-  bool get needsWebButton => kIsWeb;
+  bool get needsWebButton => false;
 
   @override
   Stream<GoogleCalendarAccount?> get changes => _changes.stream;
@@ -67,6 +71,7 @@ class GoogleSignInCalendarAuth implements GoogleCalendarAuth {
             );
           case GoogleSignInAuthenticationEventSignOut():
             _account = null;
+            _webAccount = null;
             _changes.add(null);
         }
       },
@@ -92,7 +97,32 @@ class GoogleSignInCalendarAuth implements GoogleCalendarAuth {
   @override
   Future<GoogleCalendarAccount?> connect() async {
     await _initialize();
-    if (!configured || !_google.supportsAuthenticate()) return null;
+    if (!configured) return null;
+    if (kIsWeb) {
+      final authorization = await _google.authorizationClient.authorizeScopes([
+        calendarEventsScope,
+        _googleEmailScope,
+      ]);
+      final response = await http
+          .get(
+            Uri.parse('https://www.googleapis.com/oauth2/v3/userinfo'),
+            headers: {'Authorization': 'Bearer ${authorization.accessToken}'},
+          )
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) {
+        throw StateError('Google account lookup failed');
+      }
+      final profile = jsonDecode(response.body) as Map<String, dynamic>;
+      final id = profile['sub'];
+      final email = profile['email'];
+      if (id is! String || email is! String) {
+        throw const FormatException('Invalid Google account profile');
+      }
+      _webAccount = GoogleCalendarAccount(id, email);
+      _changes.add(_webAccount);
+      return _webAccount;
+    }
+    if (!_google.supportsAuthenticate()) return null;
     final account = await _google.authenticate(
       scopeHint: [calendarEventsScope],
     );
@@ -104,8 +134,10 @@ class GoogleSignInCalendarAuth implements GoogleCalendarAuth {
   Future<String?> accessToken({bool interactive = false}) async {
     await _initialize();
     final account = _account;
-    if (account == null) return null;
-    final client = account.authorizationClient;
+    if (account == null && (!kIsWeb || _webAccount == null)) return null;
+    final client = kIsWeb
+        ? _google.authorizationClient
+        : account!.authorizationClient;
     final authorization =
         await client.authorizationForScopes([calendarEventsScope]) ??
         (interactive
@@ -118,10 +150,11 @@ class GoogleSignInCalendarAuth implements GoogleCalendarAuth {
   Future<String?> serverAuthorizationCode() async {
     await _initialize();
     final account = _account;
-    if (account == null) return null;
-    final authorization = await account.authorizationClient.authorizeServer([
-      calendarEventsScope,
-    ]);
+    if (account == null && (!kIsWeb || _webAccount == null)) return null;
+    final client = kIsWeb
+        ? _google.authorizationClient
+        : account!.authorizationClient;
+    final authorization = await client.authorizeServer([calendarEventsScope]);
     return authorization?.serverAuthCode;
   }
 
@@ -130,6 +163,7 @@ class GoogleSignInCalendarAuth implements GoogleCalendarAuth {
     await _initialize();
     if (configured) await _google.disconnect();
     _account = null;
+    _webAccount = null;
     _changes.add(null);
   }
 

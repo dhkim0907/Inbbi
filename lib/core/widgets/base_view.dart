@@ -15,6 +15,7 @@ class BaseView extends StatelessWidget {
     required this.desktopBuilder,
     this.maxWidth,
     this.backgroundColor = AppColors.background,
+    this.floatingActionButton,
   });
 
   final WidgetBuilder mobileBuilder;
@@ -23,6 +24,7 @@ class BaseView extends StatelessWidget {
   /// 지정하지 않으면 화면 크기에 따라 [_mobileMaxWidth]/[_desktopMaxWidth]를 쓴다.
   final double? maxWidth;
   final Color backgroundColor;
+  final Widget? floatingActionButton;
 
   static const double _mobileMaxWidth = 960;
   static const double _desktopMaxWidth = 1200;
@@ -33,6 +35,7 @@ class BaseView extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: backgroundColor,
+      floatingActionButton: floatingActionButton,
       body: SafeArea(
         child: MaxWidthBody(
           maxWidth:

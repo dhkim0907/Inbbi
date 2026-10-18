@@ -108,12 +108,16 @@ CalendarEvent parseAppCalendarEvent(Map<String, dynamic> value) {
   }
   return CalendarEvent(
     id: 'server:$id',
+    calendarId: value['calendarId'] as String?,
     source: CalendarSource.appServer,
     title: title,
     category: value['category'] as String? ?? '기타',
     start: start,
     end: end,
     allDay: allDay,
+    isCompleted: value['isCompleted'] == true,
+    location: value['location'] as String? ?? '',
+    memo: value['description'] as String? ?? '',
   );
 }
 
