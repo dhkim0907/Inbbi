@@ -16,10 +16,12 @@ class CalendarEventDialog extends StatefulWidget {
     required this.initialDate,
     required this.onSave,
     this.initialEvent,
-  });
+    this.initialCategory = '일정',
+  }) : assert(initialCategory == '일정' || initialCategory == '할일');
 
   final DateTime initialDate;
   final CalendarEvent? initialEvent;
+  final String initialCategory;
   final Future<void> Function(CalendarEventDraft) onSave;
 
   @override
@@ -48,6 +50,7 @@ class _CalendarEventDialogState extends State<CalendarEventDialog> {
   @override
   void initState() {
     super.initState();
+    _category = widget.initialCategory;
     _startDate = DateUtils.dateOnly(widget.initialDate);
     _endDate = _startDate;
     final event = widget.initialEvent;

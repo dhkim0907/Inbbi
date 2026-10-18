@@ -75,7 +75,7 @@ void main() {
     });
 
     testWidgets('수집처 등록 흐름·필수 입력·날짜 생략·저장 및 설정 열기 너비 $width', (tester) async {
-      tester.view.physicalSize = Size(width, 1000);
+      tester.view.physicalSize = Size(width, width == 390 ? 780 : 1000);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -120,6 +120,18 @@ void main() {
       await tester.tap(find.text('다음'));
       await tester.pump();
       expect(find.text('공지 항목 영역, 제목과 링크를 선택해 주세요.'), findsOneWidget);
+      final columns = find.byKey(const ValueKey('notice-location-columns'));
+      expect(columns, width >= 840 ? findsOneWidget : findsNothing);
+      if (width >= 840) {
+        expect(
+          tester.getTopLeft(find.text('공지 항목 영역 * ○')).dx,
+          lessThan(
+            tester
+                .getTopLeft(find.byKey(const ValueKey('notice-sample-row-0')))
+                .dx,
+          ),
+        );
+      }
       await captureReview(tester, review, 'notice-locations-${width.toInt()}');
       final row = find.byKey(const ValueKey('notice-sample-row-0'));
       for (var i = 0; i < 3; i++) {
@@ -142,6 +154,30 @@ void main() {
       expect(find.text('공지 페이지 설정'), findsOneWidget);
       expect(find.text('기본 카테고리'), findsOneWidget);
       await captureReview(tester, review, 'notice-manage-${width.toInt()}');
+      final colorButton = find.widgetWithText(OutlinedButton, '색상').first;
+      await tester.ensureVisible(colorButton);
+      await tester.tap(colorButton);
+      await tester.pumpAndSettle();
+      expect(find.text('전체 · 색상 변경'), findsOneWidget);
+      expect(find.byKey(const ValueKey('notice-category-name')), findsNothing);
+      await captureReview(
+        tester,
+        review,
+        'notice-color-editor-${width.toInt()}',
+      );
+      final color = NoticeSources.colors[1];
+      await tester.tap(find.byKey(ValueKey('notice-color-$color')));
+      await tester.tap(find.text('저장'));
+      await tester.pumpAndSettle();
+      expect(sources.sources.first.name, '전체');
+      expect(sources.sources.first.color, color);
+      final toggle = find.byType(Switch).first;
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(sources.sources.first.enabled, isFalse);
+      expect(find.text('일시정지'), findsOneWidget);
+      expect(find.text('수집을 일시정지했어요. 기존 공지는 유지됩니다.'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }

@@ -690,6 +690,8 @@ void main() {
         await tester.pump();
         await tester.tap(button);
         await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('calendar-add-일정')));
+        await tester.pumpAndSettle();
         expect(find.text('2026-09-15'), findsNWidgets(2));
         await tester.enterText(
           find.byKey(const ValueKey('calendar-event-title')),
@@ -874,10 +876,10 @@ void main() {
       expect(day15, closeTo((day14 + day16) / 2, 0.01));
       expect(find.byType(ActionChip), findsNWidgets(5));
       for (final entry in {
-        '강의': CalendarDesign.brand,
-        '과제': CalendarDesign.brand,
-        '일정': CalendarDesign.brand,
-        '할일': CalendarDesign.brand,
+        '강의': CalendarDesign.category('강의'),
+        '과제': CalendarDesign.category('과제'),
+        '일정': CalendarDesign.category('일정'),
+        '할일': CalendarDesign.category('할일'),
       }.entries) {
         final chip = find.widgetWithText(ActionChip, entry.key);
         await tester.ensureVisible(chip);

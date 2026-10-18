@@ -35,6 +35,7 @@ class NoticePanel extends StatelessWidget {
     this.actions = const [],
     this.width = 860,
     this.busy = false,
+    this.compact = false,
   });
   final String title;
   final String? subtitle;
@@ -42,10 +43,12 @@ class NoticePanel extends StatelessWidget {
   final List<Widget> actions;
   final double width;
   final bool busy;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final mobile = AppBreakpoints.of(context) == ScreenSize.mobile;
+    final narrow = AppBreakpoints.of(context) == ScreenSize.mobile;
+    final mobile = narrow && !compact;
     return Theme(
       data: Theme.of(context).copyWith(
         colorScheme: Theme.of(
@@ -77,7 +80,12 @@ class NoticePanel extends StatelessWidget {
         child: Dialog(
           backgroundColor: Colors.white,
           surfaceTintColor: Colors.transparent,
-          insetPadding: mobile ? EdgeInsets.zero : const EdgeInsets.all(24),
+          insetPadding: mobile
+              ? EdgeInsets.zero
+              : EdgeInsets.symmetric(
+                  horizontal: narrow ? 17 : 24,
+                  vertical: 24,
+                ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(mobile ? 0 : 20),
           ),
@@ -91,7 +99,7 @@ class NoticePanel extends StatelessWidget {
                 mainAxisSize: mobile ? MainAxisSize.max : MainAxisSize.min,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 20, 20, 20),
+                    padding: EdgeInsets.fromLTRB(mobile ? 20 : 24, 20, 20, 20),
                     child: Row(
                       children: [
                         Expanded(
@@ -119,6 +127,20 @@ class NoticePanel extends StatelessWidget {
                           ),
                         ),
                         IconButton(
+                          constraints: compact
+                              ? const BoxConstraints.tightFor(
+                                  width: 32,
+                                  height: 32,
+                                )
+                              : null,
+                          padding: compact ? EdgeInsets.zero : null,
+                          style: compact
+                              ? IconButton.styleFrom(
+                                  minimumSize: const Size(32, 32),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                )
+                              : null,
                           tooltip: '닫기',
                           onPressed: busy ? null : () => Navigator.pop(context),
                           icon: const Icon(
@@ -134,14 +156,29 @@ class NoticePanel extends StatelessWidget {
                   Flexible(
                     fit: mobile ? FlexFit.tight : FlexFit.loose,
                     child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(24),
+                      padding: EdgeInsets.fromLTRB(
+                        compact
+                            ? 27
+                            : mobile
+                            ? 20
+                            : 24,
+                        compact ? 25 : 20,
+                        compact
+                            ? 27
+                            : mobile
+                            ? 20
+                            : 24,
+                        compact ? 25 : 26,
+                      ),
                       child: body,
                     ),
                   ),
                   if (actions.isNotEmpty) ...[
                     const Divider(height: 1, color: noticeBorder),
                     Padding(
-                      padding: const EdgeInsets.all(20),
+                      padding: compact
+                          ? const EdgeInsets.fromLTRB(27, 18, 27, 18)
+                          : const EdgeInsets.fromLTRB(20, 15, 20, 40),
                       child: Row(children: actions),
                     ),
                   ],
@@ -165,39 +202,45 @@ class NoticeColors extends StatelessWidget {
   final ValueChanged<int> onSelected;
 
   @override
-  Widget build(BuildContext context) => Wrap(
-    spacing: 10,
-    runSpacing: 10,
-    children: [
-      for (final value in NoticeSources.colors)
-        Semantics(
-          selected: color == value,
-          button: true,
-          label: '${value.toRadixString(16)} 색상',
-          child: InkWell(
-            onTap: () => onSelected(value),
-            customBorder: const CircleBorder(),
-            child: Container(
-              width: 34,
-              height: 34,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Color(value),
-                border: color == value
-                    ? Border.all(color: Colors.white, width: 3)
-                    : null,
-                boxShadow: color == value
-                    ? [BoxShadow(color: Color(value), spreadRadius: 2)]
-                    : null,
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final small = constraints.maxWidth < 326;
+      return Wrap(
+        spacing: small ? 8 : 10,
+        runSpacing: 10,
+        children: [
+          for (final value in NoticeSources.colors)
+            Semantics(
+              key: ValueKey('notice-color-$value'),
+              selected: color == value,
+              button: true,
+              label: '${value.toRadixString(16)} 색상',
+              child: InkWell(
+                onTap: () => onSelected(value),
+                customBorder: const CircleBorder(),
+                child: Container(
+                  width: small ? 28 : 32,
+                  height: small ? 28 : 32,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Color(value),
+                    border: color == value
+                        ? Border.all(color: Colors.white, width: 3)
+                        : null,
+                    boxShadow: color == value
+                        ? [BoxShadow(color: Color(value), spreadRadius: 2)]
+                        : null,
+                  ),
+                  child: color == value
+                      ? const Icon(Icons.check, color: Colors.white, size: 19)
+                      : null,
+                ),
               ),
-              child: color == value
-                  ? const Icon(Icons.check, color: Colors.white, size: 19)
-                  : null,
             ),
-          ),
-        ),
-    ],
+        ],
+      );
+    },
   );
 }
 
@@ -375,131 +418,160 @@ class _NoticeSourceWizardState extends State<NoticeSourceWizard> {
     ),
   );
 
-  Widget _locations() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const Text(
-        '공지 가져올 위치 설정',
-        style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
-      ),
-      const SizedBox(height: 10),
-      const Text(
-        '위에서 항목을 고른 뒤, 예시 게시판에서 해당 부분을 눌러보세요.',
-        style: TextStyle(fontSize: 12, color: noticeMuted),
-      ),
-      const SizedBox(height: 24),
-      Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF6F8FC),
-          border: Border.all(color: noticeBorder),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Column(
+  Widget _locationSelectors() => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF6F8FC),
+      border: Border.all(color: noticeBorder),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (var i = 0; i < 4; i++)
-                  ChoiceChip(
-                    label: Text(
-                      '${_labels[i]} ${i == 3 ? '(선택)' : '*'} ${_selectors[i].text.isEmpty ? '○' : '✓'}',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    selected: _selection == i,
-                    onSelected: (_) => setState(() => _selection = i),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              '순서대로 선택하면 설정이 쉬워요. 날짜가 없는 게시판은 날짜를 비워두세요.',
-              style: TextStyle(fontSize: 11, color: noticeMuted),
-            ),
+            for (var i = 0; i < 4; i++)
+              ChoiceChip(
+                label: Text(
+                  '${_labels[i]} ${i == 3 ? '(선택)' : '*'} ${_selectors[i].text.isEmpty ? '○' : '✓'}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                selected: _selection == i,
+                selectedColor: const Color(0xFFE8F1FF),
+                backgroundColor: Colors.white,
+                showCheckmark: false,
+                side: BorderSide(
+                  color: _selection == i ? noticeBrand : noticeBorder,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                onSelected: (_) => setState(() => _selection = i),
+              ),
           ],
         ),
-      ),
-      const SizedBox(height: 16),
-      Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: noticeBorder),
-          borderRadius: BorderRadius.circular(14),
+        const SizedBox(height: 12),
+        const Text(
+          '순서대로 선택하면 설정이 쉬워요. 날짜가 없는 게시판은 날짜를 비워두세요.',
+          style: TextStyle(fontSize: 11, color: noticeMuted),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                _url.text,
-                style: const TextStyle(fontSize: 11, color: noticeMuted),
-              ),
-            ),
-            const Divider(height: 1),
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                '공지사항',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                '${_labels[_selection]}${_selection == 2 ? '를' : '을'} 선택해주세요.',
-                style: const TextStyle(fontSize: 12, color: noticeBrand),
-              ),
-            ),
-            for (var i = 0; i < 3; i++)
-              ListTile(
-                key: ValueKey('notice-sample-row-$i'),
-                onTap: () => setState(() {
-                  _selectors[_selection].text = _sampleSelectors[_selection];
-                  if (_selection < 3) _selection++;
-                  _error = null;
-                }),
-                title: Text(
-                  _sampleTitles[i],
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                subtitle: Text(
-                  '2026.09.${30 - i}',
-                  style: const TextStyle(fontSize: 11, color: noticeMuted),
-                ),
-              ),
-            const Padding(
-              padding: EdgeInsets.all(12),
-              child: Text(
-                'UI 테스트용 예시 게시판입니다. 입력한 웹사이트에 접속하거나 실제 공지를 수집하지 않습니다.',
-                style: TextStyle(fontSize: 11, color: noticeMuted),
-              ),
-            ),
-          ],
+      ],
+    ),
+  );
+
+  Widget _sampleBoard() => Container(
+    decoration: BoxDecoration(
+      border: Border.all(color: noticeBorder),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(
+            _url.text,
+            style: const TextStyle(fontSize: 11, color: noticeMuted),
+          ),
         ),
-      ),
-      const SizedBox(height: 16),
-      ExpansionTile(
-        title: const Text(
-          '고급 설정 · CSS 셀렉터 직접 입력',
-          style: TextStyle(fontSize: 12, color: noticeMuted),
+        const Divider(height: 1),
+        const Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('공지사항', style: TextStyle(fontWeight: FontWeight.bold)),
         ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            '${_labels[_selection]}${_selection == 2 ? '를' : '을'} 선택해주세요.',
+            style: const TextStyle(fontSize: 12, color: noticeBrand),
+          ),
+        ),
+        for (var i = 0; i < 3; i++)
+          ListTile(
+            key: ValueKey('notice-sample-row-$i'),
+            onTap: () => setState(() {
+              _selectors[_selection].text = _sampleSelectors[_selection];
+              if (_selection < 3) _selection++;
+              _error = null;
+            }),
+            title: Text(
+              _sampleTitles[i],
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              '2026.09.${30 - i}',
+              style: const TextStyle(fontSize: 11, color: noticeMuted),
+            ),
+          ),
+        const Padding(
+          padding: EdgeInsets.all(12),
+          child: Text(
+            'UI 테스트용 예시 게시판입니다. 입력한 웹사이트에 접속하거나 실제 공지를 수집하지 않습니다.',
+            style: TextStyle(fontSize: 11, color: noticeMuted),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _locations() => LayoutBuilder(
+    builder: (context, constraints) {
+      final desktop =
+          AppBreakpoints.of(context) == ScreenSize.desktop &&
+          constraints.maxWidth >= 600;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (var i = 0; i < 4; i++)
-            _field(
-              '${_labels[i]}${i == 3 ? ' (선택)' : ' *'}',
-              TextField(
-                controller: _selectors[i],
-                onChanged: (_) => setState(() {}),
-                decoration: noticeInput(_sampleSelectors[i]),
-              ),
+          const Text(
+            '공지 가져올 위치 설정',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            desktop
+                ? '왼쪽에서 항목을 고른 뒤, 예시 게시판에서 해당 부분을 눌러보세요.'
+                : '위에서 항목을 고른 뒤, 예시 게시판에서 해당 부분을 눌러보세요.',
+            style: const TextStyle(fontSize: 12, color: noticeMuted),
+          ),
+          const SizedBox(height: 24),
+          if (desktop)
+            Row(
+              key: const ValueKey('notice-location-columns'),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(width: 210, child: _locationSelectors()),
+                const SizedBox(width: 18),
+                Expanded(child: _sampleBoard()),
+              ],
+            )
+          else ...[
+            _locationSelectors(),
+            const SizedBox(height: 16),
+            _sampleBoard(),
+          ],
+          const SizedBox(height: 16),
+          ExpansionTile(
+            title: const Text(
+              '고급 설정 · CSS 셀렉터 직접 입력',
+              style: TextStyle(fontSize: 12, color: noticeMuted),
             ),
+            children: [
+              for (var i = 0; i < 4; i++)
+                _field(
+                  '${_labels[i]}${i == 3 ? ' (선택)' : ' *'}',
+                  TextField(
+                    controller: _selectors[i],
+                    onChanged: (_) => setState(() {}),
+                    decoration: noticeInput(_sampleSelectors[i]),
+                  ),
+                ),
+            ],
+          ),
         ],
-      ),
-    ],
+      );
+    },
   );
 
   Widget _preview() => Column(
@@ -507,90 +579,164 @@ class _NoticeSourceWizardState extends State<NoticeSourceWizard> {
     children: [
       const Text(
         '가져올 공지를 확인해주세요',
-        style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+        style: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF282F38),
+        ),
       ),
-      const SizedBox(height: 10),
+      const SizedBox(height: 8),
       const Text(
         '설정한 위치에서 제목과 링크가 올바르게 읽히는지 확인해요.',
-        style: TextStyle(fontSize: 12, color: noticeMuted),
+        style: TextStyle(fontSize: 12, height: 1.8, color: noticeMuted),
       ),
-      const SizedBox(height: 24),
+      const SizedBox(height: 22),
       Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12.5),
         decoration: BoxDecoration(
-          color: const Color(0xFFE9F6F2),
+          color: const Color(0xFFEAF7F1),
           borderRadius: BorderRadius.circular(10),
         ),
         child: const Text(
           '✓ 예시 공지 3개를 확인했어요.',
-          style: TextStyle(fontSize: 12, color: Color(0xFF25966C)),
+          style: TextStyle(fontSize: 12, height: 1.2, color: Color(0xFF268366)),
         ),
       ),
       const SizedBox(height: 8),
       Container(
+        padding: const EdgeInsets.symmetric(vertical: 9),
         decoration: BoxDecoration(
           border: Border.all(color: noticeBorder),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(13),
         ),
         child: Column(
           children: [
             for (var i = 0; i < 3; i++)
-              ListTile(
-                contentPadding: const EdgeInsets.all(16),
-                title: Text(
-                  _sampleTitles[i],
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                  ),
+              Container(
+                width: double.infinity,
+                constraints: const BoxConstraints(minHeight: 91.5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 17,
+                  vertical: 15,
                 ),
-                subtitle: Text(
-                  '${_selectors[3].text.isEmpty ? '날짜 없음' : '2026.09.${30 - i}'}\n${Uri.parse(_url.text).resolve('/notice/${101 + i}')}',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    height: 1.8,
-                    color: noticeMuted,
-                  ),
+                decoration: BoxDecoration(
+                  border: i < 2
+                      ? const Border(
+                          bottom: BorderSide(color: Color(0xFFEDF1F6)),
+                        )
+                      : null,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _sampleTitles[i],
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.6,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF282F38),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _selectors[3].text.isEmpty
+                          ? '날짜 없음'
+                          : '2026.09.${30 - i}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        height: 1.2,
+                        color: noticeMuted,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${Uri.parse(_url.text).resolve('/notice/${101 + i}')}',
+                      style: const TextStyle(
+                        fontFamily: 'NotoSansKR',
+                        fontSize: 10,
+                        height: 1.2,
+                        color: Color(0xFF91A0B3),
+                      ),
+                    ),
+                  ],
                 ),
               ),
           ],
         ),
       ),
-      const SizedBox(height: 12),
-      const Text(
-        '예시 게시판으로 설정을 검증합니다. 저장된 설정은 이 브라우저에 보관되며, 실제 수집 연결은 별도 구현이 필요합니다.',
-        style: TextStyle(fontSize: 11, color: noticeMuted, height: 1.6),
+      const SizedBox(height: 8),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF6F8FC),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Text(
+          '예시 게시판으로 설정을 검증합니다. 저장된 설정은 이 브라우저에 보관되며, 실제 수집 연결은 별도 구현이 필요합니다.',
+          style: TextStyle(fontSize: 11, color: noticeMuted, height: 1.6),
+        ),
       ),
+    ],
+  );
+
+  Widget _steps() => Row(
+    children: [
+      for (var i = 0; i < 3; i++) ...[
+        if (i > 0)
+          const Expanded(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: Divider(height: 1, color: Color(0xFFE5EBF3)),
+            ),
+          ),
+        Row(
+          children: [
+            Container(
+              width: 25,
+              height: 25,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: i < _step ? noticeBrand : const Color(0xFFE8F1FF),
+              ),
+              child: Text(
+                i < _step ? '✓' : '${i + 1}',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: i < _step ? FontWeight.w400 : FontWeight.w700,
+                  color: i < _step ? Colors.white : noticeBrand,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              ['페이지 등록', '위치 설정', '미리보기'][i],
+              style: TextStyle(
+                fontSize: 11,
+                color: i == _step ? noticeBrand : const Color(0xFF9AA7B8),
+                fontWeight: i == _step ? FontWeight.w700 : FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
+      ],
     ],
   );
 
   @override
   Widget build(BuildContext context) => NoticePanel(
+    key: ValueKey('notice-wizard-step-$_step'),
     title: widget.source == null ? '공지 페이지 추가' : '공지 페이지 설정',
     subtitle: '내가 보고 싶은 공지를 한곳에',
     busy: _saving,
     body: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            for (var i = 0; i < 3; i++)
-              Expanded(
-                child: Text(
-                  '${i < _step ? '✓' : i + 1} ${['페이지 등록', '위치 설정', '미리보기'][i]}',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: i == _step ? noticeBrand : noticeMuted,
-                    fontWeight: i == _step
-                        ? FontWeight.bold
-                        : FontWeight.normal,
-                  ),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 28),
+        _steps(),
+        const SizedBox(height: 26),
         switch (_step) {
           0 => _registration(),
           1 => _locations(),
@@ -608,6 +754,14 @@ class _NoticeSourceWizardState extends State<NoticeSourceWizard> {
     ),
     actions: [
       TextButton(
+        style: TextButton.styleFrom(
+          foregroundColor: const Color(0xFF728299),
+          backgroundColor: const Color(0xFFF0F4F9),
+          minimumSize: const Size(58, 44),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
         onPressed: _saving
             ? null
             : () {
@@ -624,7 +778,15 @@ class _NoticeSourceWizardState extends State<NoticeSourceWizard> {
       ),
       const Spacer(),
       FilledButton(
-        style: FilledButton.styleFrom(backgroundColor: noticeBrand),
+        style: FilledButton.styleFrom(
+          backgroundColor: noticeBrand,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          textStyle: const TextStyle(
+            fontFamily: 'NotoSansKR',
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         onPressed: _saving ? null : _next,
         child: Text(
           _saving
@@ -663,29 +825,35 @@ class _NoticeSourceEditorState extends State<NoticeSourceEditor> {
 
   @override
   Widget build(BuildContext context) => NoticePanel(
-    title: '카테고리 수정',
-    width: 430,
+    title: widget.source.builtIn ? '${widget.source.name} · 색상 변경' : '카테고리 수정',
+    width: widget.source.builtIn ? 400 : 430,
+    compact: true,
     busy: _busy,
     body: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '카테고리 이름',
-          style: TextStyle(fontSize: 12, color: noticeMuted),
-        ),
-        const SizedBox(height: 9),
-        TextField(
-          controller: _name,
-          readOnly: widget.source.builtIn,
-          maxLength: 40,
-          decoration: noticeInput('카테고리 이름').copyWith(counterText: ''),
-        ),
-        const SizedBox(height: 20),
-        const Text(
-          '카테고리 색상',
-          style: TextStyle(fontSize: 12, color: noticeMuted),
-        ),
-        const SizedBox(height: 12),
+        if (!widget.source.builtIn) ...[
+          const Text(
+            '카테고리 이름',
+            style: TextStyle(fontSize: 12, color: noticeMuted),
+          ),
+          const SizedBox(height: 9),
+          TextField(
+            key: const ValueKey('notice-category-name'),
+            controller: _name,
+            readOnly: widget.source.builtIn,
+            maxLength: 40,
+            decoration: noticeInput('카테고리 이름').copyWith(counterText: ''),
+          ),
+          const SizedBox(height: 20),
+        ],
+        if (!widget.source.builtIn) ...[
+          const Text(
+            '카테고리 색상',
+            style: TextStyle(fontSize: 12, color: noticeMuted),
+          ),
+          const SizedBox(height: 12),
+        ],
         NoticeColors(
           color: _color,
           onSelected: (color) => setState(() => _color = color),
@@ -822,6 +990,11 @@ class NoticeSourceManager extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 5),
+                if (!source.enabled)
+                  const Text(
+                    '일시정지',
+                    style: TextStyle(fontSize: 10, color: noticeMuted),
+                  ),
                 Text(
                   source.builtIn ? '기본 · 색상 변경 가능' : source.url,
                   maxLines: 2,
@@ -844,7 +1017,18 @@ class NoticeSourceManager extends StatelessWidget {
             activeTrackColor: noticeBrand,
             onChanged: sources.busy
                 ? null
-                : (value) => sources.put(source.copyWith(enabled: value)),
+                : (value) async {
+                    final saved = await sources.put(
+                      source.copyWith(enabled: value),
+                    );
+                    if (saved && !value && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('수집을 일시정지했어요. 기존 공지는 유지됩니다.'),
+                        ),
+                      );
+                    }
+                  },
           ),
         ],
       );
